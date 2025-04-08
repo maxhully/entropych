@@ -70,13 +70,17 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 	var user *User
 	user = nil
 
-	sqlitex.Exec(conn, "select user_id, name from user where name = ? limit 1", func(stmt *sqlite.Stmt) error {
+	err := sqlitex.Exec(conn, "select user_id, name from user where name = ? limit 1", func(stmt *sqlite.Stmt) error {
 		user = &User{
 			Id:   stmt.ColumnInt(0),
 			Name: stmt.ColumnText(1),
 		}
 		return nil
 	}, name)
+	if err != nil {
+		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
 	if user == nil {
 		user = &User{
@@ -84,7 +88,7 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 			Name: name,
 		}
 	}
-	err := app.templates.ExecuteTemplate(w, "hello.html", user)
+	err = app.templates.ExecuteTemplate(w, "hello.html", user)
 	if err != nil {
 		log.Fatalf("executing template: %s", err)
 	}
