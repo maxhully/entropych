@@ -1,3 +1,6 @@
 <h1>Hello!</h1>
 
-<p>Hello, {{.Name}}!</p>
+<p>
+    Hello, {{.Name}}!
+    {{ if.Exists }}(id = {{.Id}}){{ else }}(not found){{ end }}
+</p>
