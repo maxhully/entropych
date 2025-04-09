@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -29,6 +30,15 @@ type App struct {
 	dbpool    *sqlitex.Pool
 }
 
+func setUpDb(conn *sqlite.Conn) error {
+	sqlBytes, err := os.ReadFile("schema.sql")
+	if err != nil {
+		return err
+	}
+	sql := string(sqlBytes)
+	return sqlitex.ExecScript(conn, sql)
+}
+
 func NewApp() *App {
 	dbpool, err := sqlitex.Open("test.db", 0, 10)
 	if err != nil {
@@ -41,12 +51,7 @@ func NewApp() *App {
 	}
 	defer dbpool.Put(conn)
 
-	err = sqlitex.ExecScript(conn, `
-		create table if not exists user (
-			user_id integer primary key not null,
-			name text not null
-		);
-	`)
+	err = setUpDb(conn)
 	if err != nil {
 		log.Fatalf("couldn't set up db: %s", err)
 	}
@@ -54,6 +59,18 @@ func NewApp() *App {
 	return &App{
 		templates: template.Must(template.ParseGlob("templates/*")),
 		dbpool:    dbpool,
+	}
+}
+
+func errorResponse(w http.ResponseWriter, err error) {
+	log.Printf("sending 500 error: %s", err)
+	http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+}
+
+func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
+	err := app.templates.ExecuteTemplate(w, "create.html", nil)
+	if err != nil {
+		errorResponse(w, err)
 	}
 }
 
@@ -78,7 +95,7 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}, name)
 	if err != nil {
-		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+		errorResponse(w, err)
 		return
 	}
 
@@ -88,34 +105,28 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 			Name: name,
 		}
 	}
-	err = app.templates.ExecuteTemplate(w, "hello.html", user)
-	if err != nil {
-		log.Fatalf("executing template: %s", err)
-	}
+	app.RenderTemplate(w, "hello.html", user)
 }
 
 func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		r.ParseForm()
-		name := r.PostForm.Get("name")
-
-		conn := app.dbpool.Get(r.Context())
-		defer app.dbpool.Put(conn)
-
-		err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
-		if err != nil {
-			log.Printf("error: %s", err)
-			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	} else {
-		err := app.templates.ExecuteTemplate(w, "create.html", nil)
-		if err != nil {
-			log.Fatalf("executing template: %s", err)
-		}
+	if r.Method != "POST" {
+		app.RenderTemplate(w, "create.html", nil)
+		return
 	}
+	r.ParseForm()
+	name := r.PostForm.Get("name")
+
+	conn := app.dbpool.Get(r.Context())
+	defer app.dbpool.Put(conn)
+
+	err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
+	if err != nil {
+		log.Printf("error: %s", err)
+		errorResponse(w, err)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func main() {
