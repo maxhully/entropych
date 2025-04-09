@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"crawshaw.io/sqlite"
@@ -13,21 +15,63 @@ import (
 )
 
 type User struct {
-	Id   int
-	Name string
+	UserID int64
+	Name   string
 }
 
 func (u *User) Exists() bool {
-	return u.Id != -1
+	return u.UserID != -1
 }
 
 func helloWorld(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello, world!")
 }
 
+type DB struct {
+	dbpool *sqlitex.Pool
+}
+
+func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
+	conn := db.dbpool.Get(ctx)
+	defer db.dbpool.Put(conn)
+
+	var user *User
+	user = nil
+
+	err := sqlitex.Exec(
+		conn,
+		"select user_id, name from user where name = ? limit 1",
+		func(stmt *sqlite.Stmt) error {
+			user = &User{
+				UserID: stmt.ColumnInt64(0),
+				Name:   stmt.ColumnText(1),
+			}
+			return nil
+		},
+		name,
+	)
+	return user, err
+}
+
+func (db *DB) CreateUser(ctx context.Context, name string) (*User, error) {
+	conn := db.dbpool.Get(ctx)
+	defer db.dbpool.Put(conn)
+
+	var user *User
+	user = nil
+
+	err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
+	if err != nil {
+		return nil, err
+	}
+	userID := conn.LastInsertRowID()
+	user = &User{UserID: userID, Name: name}
+	return user, err
+}
+
 type App struct {
 	templates *template.Template
-	dbpool    *sqlitex.Pool
+	db        *DB
 }
 
 func setUpDb(conn *sqlite.Conn) error {
@@ -39,26 +83,30 @@ func setUpDb(conn *sqlite.Conn) error {
 	return sqlitex.ExecScript(conn, sql)
 }
 
-func NewApp() *App {
+func NewDB() (*DB, error) {
 	dbpool, err := sqlitex.Open("test.db", 0, 10)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	conn := dbpool.Get(context.TODO())
 	if conn == nil {
-		log.Fatal("I couldn't get a connection!")
+		return nil, errors.New("couldn't get a connection")
 	}
 	defer dbpool.Put(conn)
 
 	err = setUpDb(conn)
 	if err != nil {
-		log.Fatalf("couldn't set up db: %s", err)
+		return nil, fmt.Errorf("couldn't set up db: %s", err)
 	}
 
+	return &DB{dbpool: dbpool}, nil
+}
+
+func NewApp(db *DB) *App {
 	return &App{
 		templates: template.Must(template.ParseGlob("templates/*")),
-		dbpool:    dbpool,
+		db:        db,
 	}
 }
 
@@ -68,7 +116,7 @@ func errorResponse(w http.ResponseWriter, err error) {
 }
 
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
-	err := app.templates.ExecuteTemplate(w, "create.html", nil)
+	err := app.templates.ExecuteTemplate(w, name, data)
 	if err != nil {
 		errorResponse(w, err)
 	}
@@ -80,29 +128,15 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Max"
 	}
-
-	conn := app.dbpool.Get(r.Context())
-	defer app.dbpool.Put(conn)
-
-	var user *User
-	user = nil
-
-	err := sqlitex.Exec(conn, "select user_id, name from user where name = ? limit 1", func(stmt *sqlite.Stmt) error {
-		user = &User{
-			Id:   stmt.ColumnInt(0),
-			Name: stmt.ColumnText(1),
-		}
-		return nil
-	}, name)
+	user, err := app.db.GetUserByName(r.Context(), name)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
-
 	if user == nil {
 		user = &User{
-			Id:   -1,
-			Name: name,
+			UserID: -1,
+			Name:   name,
 		}
 	}
 	app.RenderTemplate(w, "hello.html", user)
@@ -115,22 +149,22 @@ func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	r.ParseForm()
 	name := r.PostForm.Get("name")
-
-	conn := app.dbpool.Get(r.Context())
-	defer app.dbpool.Put(conn)
-
-	err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
+	// TODO: validation
+	_, err := app.db.CreateUser(r.Context(), name)
 	if err != nil {
-		log.Printf("error: %s", err)
 		errorResponse(w, err)
 		return
 	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(name))
+	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
 func main() {
-	app := NewApp()
+	db, err := NewDB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	app := NewApp(db)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", helloWorld)
