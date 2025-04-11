@@ -21,7 +21,7 @@ type User struct {
 }
 
 func (u *User) Exists() bool {
-	return u.UserID != -1
+	return u.UserID > 0
 }
 
 type DB struct {
@@ -194,8 +194,7 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if user == nil {
 		user = &User{
-			UserID: -1,
-			Name:   name,
+			Name: name,
 		}
 	}
 	app.RenderTemplate(w, "hello.html", user)
