@@ -9,3 +9,5 @@ create table if not exists post (
     created_at integer not null, /* unix timestamp */
     content text not null
 );
+
+create index if not exists post_user_id_idx on post (user_id);

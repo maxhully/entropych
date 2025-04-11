@@ -13,7 +13,10 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/oxtoacart/bpool"
 )
+
+var bufpool *bpool.BufferPool
 
 type User struct {
 	UserID int64
@@ -36,11 +39,15 @@ func (db *DB) GetRecentPosts(ctx context.Context, limit int) ([]Post, error) {
 
 	err := sqlitex.Exec(
 		conn,
-		"select post_id, user_id, created_at, content from post order by created_at desc limit ?",
+		`select post_id, user.name, created_at, content
+		from post
+		join user using (user_id)
+		order by created_at desc
+		limit ?`,
 		func(stmt *sqlite.Stmt) error {
 			post := Post{
 				PostID:    stmt.ColumnInt64(0),
-				UserID:    stmt.ColumnInt64(1),
+				UserName:  stmt.ColumnText(1),
 				CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
 				Content:   stmt.ColumnText(3),
 			}
@@ -75,7 +82,7 @@ func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
 
 type Post struct {
 	PostID    int64
-	UserID    int64
+	UserName  string
 	CreatedAt time.Time
 	Content   string
 }
@@ -86,21 +93,29 @@ func (db *DB) CreatePost(ctx context.Context, userID int64, content string) (*Po
 
 	var post *Post = nil
 
-	err := sqlitex.Exec(conn, "insert into post (user_id, created_at, content) values (?, ?, ?);", nil, userID, time.Now().UTC().Unix(), content)
+	err := sqlitex.Exec(conn, "insert into post (user_id, created_at, content) values (?, ?, ?)", nil, userID, time.Now().UTC().Unix(), content)
 	if err != nil {
 		return nil, err
 	}
 	postID := conn.LastInsertRowID()
 
-	err = sqlitex.Exec(conn, "select post_id, user_id, created_at, content from post where post_id = ?;", func(stmt *sqlite.Stmt) error {
-		post = &Post{
-			PostID:    stmt.ColumnInt64(0),
-			UserID:    stmt.ColumnInt64(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
-			Content:   stmt.ColumnText(3),
-		}
-		return nil
-	}, postID)
+	err = sqlitex.Exec(
+		conn,
+		`select post_id, user.name, created_at, content
+		from post
+		join user using (user_id)
+		where post_id = ?`,
+		func(stmt *sqlite.Stmt) error {
+			post = &Post{
+				PostID:    stmt.ColumnInt64(0),
+				UserName:  stmt.ColumnText(1),
+				CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+				Content:   stmt.ColumnText(3),
+			}
+			return nil
+		},
+		postID,
+	)
 
 	return post, err
 }
@@ -111,7 +126,7 @@ func (db *DB) CreateUser(ctx context.Context, name string) (*User, error) {
 
 	var user *User = nil
 
-	err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
+	err := sqlitex.Exec(conn, "insert into user (name) values (?)", nil, name)
 	if err != nil {
 		return nil, err
 	}
@@ -167,10 +182,17 @@ func errorResponse(w http.ResponseWriter, err error) {
 }
 
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
-	err := app.templates.ExecuteTemplate(w, name, data)
+	// We render to a buffer (from the buffer pool) so that we can handle template
+	// execution errors (without sending half a template response first).
+	buf := bufpool.Get()
+	defer bufpool.Put(buf)
+	err := app.templates.ExecuteTemplate(buf, name, data)
 	if err != nil {
 		errorResponse(w, err)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	buf.WriteTo(w)
 }
 
 func (app *App) homepage(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +266,8 @@ func main() {
 		log.Fatal(err)
 	}
 	app := NewApp(db)
+
+	bufpool = bpool.NewBufferPool(48)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", app.homepage)
