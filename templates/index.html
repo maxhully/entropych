@@ -7,3 +7,9 @@
     <div><textarea id="content" name="content"></textarea></div>
     <div><button>Post!</button></div>
 </form>
+
+<ul>
+    {{range .}}
+    <li>{{.UserID}}: {{.Content}}</li>
+    {{end}}
+</ul>

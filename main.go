@@ -28,6 +28,30 @@ type DB struct {
 	dbpool *sqlitex.Pool
 }
 
+func (db *DB) GetRecentPosts(ctx context.Context, limit int) ([]Post, error) {
+	conn := db.dbpool.Get(ctx)
+	defer db.dbpool.Put(conn)
+
+	var posts []Post = make([]Post, 0)
+
+	err := sqlitex.Exec(
+		conn,
+		"select post_id, user_id, created_at, content from post order by created_at desc limit ?",
+		func(stmt *sqlite.Stmt) error {
+			post := Post{
+				PostID:    stmt.ColumnInt64(0),
+				UserID:    stmt.ColumnInt64(1),
+				CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+				Content:   stmt.ColumnText(3),
+			}
+			posts = append(posts, post)
+			return nil
+		},
+		limit,
+	)
+	return posts, err
+}
+
 func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
 	conn := db.dbpool.Get(ctx)
 	defer db.dbpool.Put(conn)
@@ -150,7 +174,11 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 }
 
 func (app *App) homepage(w http.ResponseWriter, r *http.Request) {
-	app.RenderTemplate(w, "index.html", nil)
+	posts, err := app.db.GetRecentPosts(r.Context(), 10)
+	if err != nil {
+		errorResponse(w, err)
+	}
+	app.RenderTemplate(w, "index.html", posts)
 }
 
 func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
