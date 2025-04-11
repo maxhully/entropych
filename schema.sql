@@ -6,6 +6,6 @@ create table if not exists user (
 create table if not exists post (
     post_id integer primary key not null,
     user_id integer references user(user_id),
-    created_at integer not null,
+    created_at integer not null, /* unix timestamp */
     content text not null
 );

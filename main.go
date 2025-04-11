@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -23,10 +24,6 @@ func (u *User) Exists() bool {
 	return u.UserID != -1
 }
 
-func helloWorld(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello, world!")
-}
-
 type DB struct {
 	dbpool *sqlitex.Pool
 }
@@ -35,8 +32,7 @@ func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
 	conn := db.dbpool.Get(ctx)
 	defer db.dbpool.Put(conn)
 
-	var user *User
-	user = nil
+	var user *User = nil
 
 	err := sqlitex.Exec(
 		conn,
@@ -53,12 +49,43 @@ func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
 	return user, err
 }
 
+type Post struct {
+	PostID    int64
+	UserID    int64
+	CreatedAt time.Time
+	Content   string
+}
+
+func (db *DB) CreatePost(ctx context.Context, userID int64, content string) (*Post, error) {
+	conn := db.dbpool.Get(ctx)
+	defer db.dbpool.Put(conn)
+
+	var post *Post = nil
+
+	err := sqlitex.Exec(conn, "insert into post (user_id, created_at, content) values (?, ?, ?);", nil, userID, time.Now().UTC().Unix(), content)
+	if err != nil {
+		return nil, err
+	}
+	postID := conn.LastInsertRowID()
+
+	err = sqlitex.Exec(conn, "select post_id, user_id, created_at, content from post where post_id = ?;", func(stmt *sqlite.Stmt) error {
+		post = &Post{
+			PostID:    stmt.ColumnInt64(0),
+			UserID:    stmt.ColumnInt64(1),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			Content:   stmt.ColumnText(3),
+		}
+		return nil
+	}, postID)
+
+	return post, err
+}
+
 func (db *DB) CreateUser(ctx context.Context, name string) (*User, error) {
 	conn := db.dbpool.Get(ctx)
 	defer db.dbpool.Put(conn)
 
-	var user *User
-	user = nil
+	var user *User = nil
 
 	err := sqlitex.Exec(conn, "insert into user (name) values (?);", nil, name)
 	if err != nil {
@@ -122,6 +149,10 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	}
 }
 
+func (app *App) homepage(w http.ResponseWriter, r *http.Request) {
+	app.RenderTemplate(w, "index.html", nil)
+}
+
 func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	name := q.Get("name")
@@ -159,6 +190,27 @@ func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
+func (app *App) createPost(w http.ResponseWriter, r *http.Request) {
+	// TODO: authentication and stuff
+	user, err := app.db.GetUserByName(r.Context(), "Max")
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if err = r.ParseForm(); err != nil {
+		errorResponse(w, err)
+		return
+	}
+	content := r.PostForm.Get("content")
+	// TODO: validation
+	_, err = app.db.CreatePost(r.Context(), user.UserID, content)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func main() {
 	db, err := NewDB()
 	if err != nil {
@@ -167,9 +219,11 @@ func main() {
 	app := NewApp(db)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", helloWorld)
+	mux.HandleFunc("/", app.homepage)
 	mux.HandleFunc("/user", app.helloUser)
-	mux.HandleFunc("/users/new", app.createUser)
+	mux.HandleFunc("GET /users/new", app.createUser)
+	mux.HandleFunc("POST /users/new", app.createUser)
+	mux.HandleFunc("POST /posts/new", app.createPost)
 	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
 	http.ListenAndServe(":7777", mux)
 }
