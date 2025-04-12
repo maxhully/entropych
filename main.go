@@ -241,7 +241,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		Errors:   make(map[string][]string),
 	}
 
-	// TODO: more validation (max length)
+	// TODO: more validation (max length, check if user already exists)
 	if len(form.Name) == 0 {
 		form.Errors["name"] = append(form.Errors["name"], "Name is required")
 	}
@@ -297,6 +297,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer dbpool.Close()
 	db, err := NewDB(dbpool)
 	if err != nil {
 		log.Fatal(err)
