@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
@@ -79,9 +81,13 @@ type Post struct {
 	Content   string
 }
 
+func utcNow() time.Time {
+	return time.Now().UTC()
+}
+
 func CreatePost(conn *sqlite.Conn, userID int64, content string) (*Post, error) {
 	query := "insert into post (user_id, created_at, content) values (?, ?, ?)"
-	err := sqlitex.Exec(conn, query, nil, userID, time.Now().UTC().Unix(), content)
+	err := sqlitex.Exec(conn, query, nil, userID, utcNow().Unix(), content)
 	if err != nil {
 		return nil, err
 	}
@@ -309,45 +315,93 @@ type LogInForm struct {
 
 // Writing errors onto the login form is probably a bad way to do this, in terms of API design.
 // But it's a starting point.
-func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (canLogIn bool, err error) {
+//
+// If the returned *User is not nil, then the user can log in.
+// If the user exists but the password is wrong, we still return nil.
+func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*User, error) {
 	var hashAndSalt HashAndSalt
-	foundUser := false
-	query := "select password_salt, password_hash from user where name = ? limit 1"
+	var user *User
+	query := "select user_id, name, password_salt, password_hash from user where name = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
 		var err error
-		if hashAndSalt.Salt, err = io.ReadAll(stmt.ColumnReader(0)); err != nil {
+		user = &User{
+			UserID: stmt.ColumnInt64(0),
+			Name:   stmt.ColumnText(1),
+		}
+		if hashAndSalt.Salt, err = io.ReadAll(stmt.ColumnReader(2)); err != nil {
 			return err
 		}
-		if hashAndSalt.Hash, err = io.ReadAll(stmt.ColumnReader(1)); err != nil {
+		if hashAndSalt.Hash, err = io.ReadAll(stmt.ColumnReader(3)); err != nil {
 			return err
 		}
-		foundUser = true
 		return err
 	}
 	if err := sqlitex.Exec(conn, query, collect, form.Name); err != nil {
-		return false, err
+		return nil, err
 	}
-	if !foundUser {
+	if user == nil {
 		// Some people discourage revealing this information in your login form, for
 		// security reasons. But this is a social networking site where the existence of
 		// a user with a given username is public knowledge. (Also, even on a private
 		// site, the registration form will often give away this info anyways.)
 		form.PushError("name", "There is no user with this name")
-		return false, nil
+		return nil, nil
 	}
-
-	canLogIn = CheckPassword([]byte(form.Password), hashAndSalt)
-	if !canLogIn {
+	if !CheckPassword([]byte(form.Password), hashAndSalt) {
 		form.PushError("password", "This password is incorrect")
+		return nil, nil
 	}
-
-	return canLogIn, nil
+	// The user can log in!
+	return user, nil
 }
 
 func newLogInForm() LogInForm {
 	return LogInForm{nameAndPasswordForm{
 		Errors: make(map[string][]string),
 	}}
+}
+
+type UserSession struct {
+	UserID          int64
+	SessionPublicID []byte
+	ExpirationTime  time.Time
+}
+
+const defaultSessionDuration time.Duration = time.Minute * 30
+
+func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
+	sessionPublicID := make([]byte, 128)
+	if _, err := rand.Read(sessionPublicID); err != nil {
+		return nil, err
+	}
+	expirationTime := utcNow().Add(defaultSessionDuration)
+	query := `
+		insert into user_session (user_id, session_public_id, expiration_time)
+		values (?, ?, ?)`
+	err := sqlitex.Exec(conn, query, nil, userID, sessionPublicID, expirationTime.Unix())
+	if err != nil {
+		return nil, err
+	}
+	session := &UserSession{
+		UserID:          userID,
+		SessionPublicID: sessionPublicID,
+		ExpirationTime:  expirationTime,
+	}
+	return session, err
+}
+
+const sessionIdCookieName = "id"
+
+func SaveSessionInCookie(w http.ResponseWriter, session *UserSession) {
+	cookie := http.Cookie{
+		Name:     sessionIdCookieName,
+		Value:    hex.EncodeToString(session.SessionPublicID),
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(w, &cookie)
 }
 
 func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
@@ -364,18 +418,22 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	canLogIn, err := checkLogInForm(conn, &form)
+	user, err := checkLogInForm(conn, &form)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
-	if !canLogIn {
+	if user == nil {
 		app.RenderTemplate(w, "log_in.html", form)
 		return
 	}
 
-	// TODO: set session cookie
-
+	session, err := CreateUserSession(conn, user.UserID)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	SaveSessionInCookie(w, session)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

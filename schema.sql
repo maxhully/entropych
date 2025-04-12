@@ -1,3 +1,5 @@
+/* All timestamp columns are unix timestamps in UTC */
+
 create table if not exists user (
     user_id integer primary key not null,
     name text not null,
@@ -13,3 +15,10 @@ create table if not exists post (
 );
 create index if not exists post_user_id_idx on post (user_id);
 
+create table if not exists user_session (
+    user_session_id integer primary key not null,
+    user_id integer references user(user_id),
+    session_public_id blob not null, /* random string we can put in a cookie */
+    expiration_time integer not null /* unix timestamp */
+);
+create index if not exists user_session_session_public_id_idx on user_session (session_public_id);

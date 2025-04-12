@@ -141,6 +141,14 @@ func TestLogInUser(t *testing.T) {
 			}
 			if len(testCase.expectedErrorMessage) > 0 {
 				checkBodyContains(t, result, testCase.expectedErrorMessage)
+			} else {
+				cookies := w.Result().Cookies()
+				if len(cookies) != 1 {
+					t.Errorf("expected 1 cookie set; got %d", len(cookies))
+				}
+				if cookies[0].Name != sessionIdCookieName {
+					t.Errorf("expected cookie named %#v; got %#v", sessionIdCookieName, cookies[0].Name)
+				}
 			}
 		})
 	}
