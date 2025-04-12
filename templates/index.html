@@ -3,18 +3,21 @@
 {{if .User}}
 <p>Hello, {{.User.Name}}!</p>
 <form method="post" action="/logout">
+    {{.CSRFField}}
     <button>Log out</button>
 </form>
 {{else}}
 <p>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></p>
 {{end}}
 
+{{if .User}}
 <form method="post" action="/posts/new">
     {{.CSRFField}}
     <div><label for="content">shout into the void</label></div>
     <div><textarea id="content" name="content"></textarea></div>
     <div><button>Post!</button></div>
 </form>
+{{end}}
 
 <ul>
     {{range .Posts}}
