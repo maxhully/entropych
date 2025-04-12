@@ -5,17 +5,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"html/template"
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/gorilla/csrf"
 	"github.com/oxtoacart/bpool"
 )
 
@@ -187,16 +188,27 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	buf.WriteTo(w)
 }
 
+type homepage struct {
+	User      *User
+	Posts     []Post
+	CSRFField template.HTML
+}
+
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
+	user, err := getUserIfLoggedIn(conn, r)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
 	posts, err := GetRecentPosts(conn, 10)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
-	app.RenderTemplate(w, "index.html", posts)
+	app.RenderTemplate(w, "index.html", homepage{User: user, Posts: posts, CSRFField: csrf.TemplateField(r)})
 }
 
 func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
@@ -222,8 +234,9 @@ func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
 }
 
 type nameAndPasswordForm struct {
-	Name     string
-	Password string
+	Name      string
+	Password  string
+	CSRFField template.HTML
 	// rename to Problems?
 	Errors map[string][]string
 }
@@ -232,7 +245,9 @@ type SignUpForm struct {
 	nameAndPasswordForm
 }
 
-func (f *nameAndPasswordForm) ParseFrom(r *http.Request) error {
+func (f *nameAndPasswordForm) ParseFromBody(r *http.Request) error {
+	// TODO: this should never error, because the CSRF middleware should already have
+	// parsed the body. So I should be able to move this into newSignUpForm, etc.
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
@@ -245,9 +260,10 @@ func (f *nameAndPasswordForm) PushError(fieldName string, errorMessage string) {
 	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
 }
 
-func newSignUpForm() SignUpForm {
+func newSignUpForm(r *http.Request) SignUpForm {
 	return SignUpForm{nameAndPasswordForm{
-		Errors: make(map[string][]string),
+		CSRFField: csrf.TemplateField(r),
+		Errors:    make(map[string][]string),
 	}}
 }
 
@@ -278,16 +294,16 @@ func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
 }
 
 func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
+	// TODO: handle when user is already logged in
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	form := newSignUpForm()
-
+	form := newSignUpForm(r)
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, "sign_up.html", form)
 		return
 	}
-	if err := form.ParseFrom(r); err != nil {
+	if err := form.ParseFromBody(r); err != nil {
 		badRequest(w)
 		return
 	}
@@ -300,13 +316,19 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := CreateUser(conn, form.Name, form.Password); err != nil {
+	user, err := CreateUser(conn, form.Name, form.Password)
+	if err != nil {
 		errorResponse(w, err)
 		return
 	}
+	session, err := CreateUserSession(conn, user.UserID)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	SaveSessionInCookie(w, session)
 
-	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(form.Name))
-	http.Redirect(w, r, url, http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 type LogInForm struct {
@@ -355,9 +377,10 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*User, error) {
 	return user, nil
 }
 
-func newLogInForm() LogInForm {
+func newLogInForm(r *http.Request) LogInForm {
 	return LogInForm{nameAndPasswordForm{
-		Errors: make(map[string][]string),
+		CSRFField: csrf.TemplateField(r),
+		Errors:    make(map[string][]string),
 	}}
 }
 
@@ -374,11 +397,12 @@ func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
 	if _, err := rand.Read(sessionPublicID); err != nil {
 		return nil, err
 	}
-	expirationTime := utcNow().Add(defaultSessionDuration)
+	now := utcNow()
+	expirationTime := now.Add(defaultSessionDuration)
 	query := `
-		insert into user_session (user_id, session_public_id, expiration_time)
-		values (?, ?, ?)`
-	err := sqlitex.Exec(conn, query, nil, userID, sessionPublicID, expirationTime.Unix())
+		insert into user_session (user_id, session_public_id, created_at, expiration_time)
+		values (?, ?, ?, ?)`
+	err := sqlitex.Exec(conn, query, nil, userID, sessionPublicID, now.Unix(), expirationTime.Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -404,16 +428,28 @@ func SaveSessionInCookie(w http.ResponseWriter, session *UserSession) {
 	http.SetCookie(w, &cookie)
 }
 
+func ClearSessionCookie(w http.ResponseWriter) {
+	cookie := http.Cookie{
+		Name:     sessionIdCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(w, &cookie)
+}
+
 func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	form := newLogInForm()
+	form := newLogInForm(r)
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, "log_in.html", form)
 		return
 	}
-	if err := form.ParseFrom(r); err != nil {
+	if err := form.ParseFromBody(r); err != nil {
 		badRequest(w)
 		return
 	}
@@ -445,10 +481,13 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	// TODO: authentication and stuff
-	user, err := GetUserByName(conn, "Max")
+	user, err := getUserIfLoggedIn(conn, r)
 	if err != nil {
 		errorResponse(w, err)
+		return
+	}
+	if user == nil {
+		redirectToLogin(w, r)
 		return
 	}
 	if err = r.ParseForm(); err != nil {
@@ -465,8 +504,71 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	// Clear the session cookie in case it has expired
+	ClearSessionCookie(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*User, error) {
+	query := `
+		select user_id, user.name
+		from user_session
+		join user using (user_id)
+		where session_public_id = ? and expiration_time > ?`
+	var user *User
+	collect := func(stmt *sqlite.Stmt) error {
+		user = &User{
+			UserID: stmt.ColumnInt64(0),
+			Name:   stmt.ColumnText(1),
+		}
+		return nil
+	}
+	err := sqlitex.Exec(conn, query, collect, sessionPublicID, utcNow().Unix())
+	return user, err
+
+}
+
+func getUserIfLoggedIn(conn *sqlite.Conn, r *http.Request) (*User, error) {
+	cookies := r.CookiesNamed(sessionIdCookieName)
+	if len(cookies) == 0 {
+		return nil, nil
+	}
+	if len(cookies) > 1 {
+		return nil, fmt.Errorf("expected 1 cookie with name %#v, got %d", sessionIdCookieName, len(cookies))
+	}
+	sessionPublicID, err := hex.DecodeString(cookies[0].Value)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: handle extending the session
+	return GetUserFromSessionPublicID(conn, sessionPublicID)
+}
+
+func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
+	// TODO: csrf protection
+	ClearSessionCookie(w)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 // I might call this distorted.social, since entropy.social is taken
 func main() {
+	// Might want this to be in a secret file instead
+	secretKeyFlag := flag.String("secret-key", "", "Secret key for signed cookies (hex encoded)")
+	flag.Parse()
+
+	if secretKeyFlag == nil || len(*secretKeyFlag) == 0 {
+		log.Fatal("--secret-key is required")
+	}
+	secretKeyHex := *secretKeyFlag
+	secretKey, err := hex.DecodeString(secretKeyHex)
+	if err != nil {
+		log.Fatal("--secret-key must be hex-encoded")
+	}
+	if len(secretKey) != 32 {
+		log.Fatal("--secret-key must be 32 bytes")
+	}
+
 	dbpool, err := sqlitex.Open("test.db", 0, 10)
 	if err != nil {
 		log.Fatal(err)
@@ -485,7 +587,11 @@ func main() {
 	mux.HandleFunc("POST /signup", app.SignUpUser)
 	mux.HandleFunc("GET /login", app.LogIn)
 	mux.HandleFunc("POST /login", app.LogIn)
+	mux.HandleFunc("POST /logout", app.LogOut)
 	mux.HandleFunc("POST /posts/new", app.NewPost)
 	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
-	http.ListenAndServe(":7777", mux)
+
+	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
+
+	http.ListenAndServe(":7777", csrfProtect(mux))
 }

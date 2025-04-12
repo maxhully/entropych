@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/rand"
-	"slices"
+	"crypto/subtle"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -30,5 +30,8 @@ func HashAndSaltPassword(password []byte) (*HashAndSalt, error) {
 
 func CheckPassword(password []byte, hashAndSalt HashAndSalt) bool {
 	hash := hashPassword(password, hashAndSalt.Salt)
-	return slices.Equal(hash, hashAndSalt.Hash)
+	if len(hash) != len(hashAndSalt.Hash) {
+		return false
+	}
+	return subtle.ConstantTimeCompare(hash, hashAndSalt.Hash) == 1
 }

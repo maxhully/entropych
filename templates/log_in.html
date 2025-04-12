@@ -13,7 +13,8 @@
     </ul>
     {{end}}
 
-    <form method="post">
+    <form method="post" action="/login">
+        {{.CSRFField}}
         <div>
             <label>
                 Username:
@@ -27,7 +28,7 @@
             </label>
         </div>
         <div>
-            <button>Sign up</button>
+            <button>Log in</button>
         </div>
     </form>
 </body>

@@ -1,15 +1,23 @@
 <h1>entropy.social</h1>
 
-<p>Hello!</p>
+{{if .User}}
+<p>Hello, {{.User.Name}}!</p>
+<form method="post" action="/logout">
+    <button>Log out</button>
+</form>
+{{else}}
+<p>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></p>
+{{end}}
 
 <form method="post" action="/posts/new">
+    {{.CSRFField}}
     <div><label for="content">shout into the void</label></div>
     <div><textarea id="content" name="content"></textarea></div>
     <div><button>Post!</button></div>
 </form>
 
 <ul>
-    {{range .}}
+    {{range .Posts}}
     <li>{{.UserName}} on {{.CreatedAt.Format "Jan 02 2006"}}: {{.Content}}</li>
     {{end}}
 </ul>

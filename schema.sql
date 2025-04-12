@@ -19,6 +19,7 @@ create table if not exists user_session (
     user_session_id integer primary key not null,
     user_id integer references user(user_id),
     session_public_id blob not null, /* random string we can put in a cookie */
+    created_at integer not null, /* unix timestamp */
     expiration_time integer not null /* unix timestamp */
 );
 create index if not exists user_session_session_public_id_idx on user_session (session_public_id);
