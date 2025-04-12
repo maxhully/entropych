@@ -250,28 +250,6 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	app.RenderTemplate(w, "index.html", homepage{User: user, Posts: posts, CSRFField: csrf.TemplateField(r)})
 }
 
-func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
-	conn := app.db.dbpool.Get(r.Context())
-	defer app.db.dbpool.Put(conn)
-
-	q := r.URL.Query()
-	name := q.Get("name")
-	if name == "" {
-		name = "Max"
-	}
-	user, err := GetUserByName(conn, name)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	if user == nil {
-		user = &User{
-			Name: name,
-		}
-	}
-	app.RenderTemplate(w, "hello.html", user)
-}
-
 type nameAndPasswordForm struct {
 	Name      string
 	Password  string
@@ -619,7 +597,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", app.Homepage)
-	mux.HandleFunc("/user", app.HelloUser)
 	mux.HandleFunc("GET /signup", app.SignUpUser)
 	mux.HandleFunc("POST /signup", app.SignUpUser)
 	mux.HandleFunc("GET /login", app.LogIn)
