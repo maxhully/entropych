@@ -240,7 +240,10 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	// Max length for username and password
 	const maxLength = 256
 
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		errorResponse(w, err)
+		return
+	}
 	form := SignUpForm{
 		Name:     r.PostForm.Get("name"),
 		Password: r.PostForm.Get("password"),
@@ -303,7 +306,7 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	content := r.PostForm.Get("content")
-	// TODO: validation
+	// should empty posts be allowed?
 	_, err = app.db.CreatePost(r.Context(), user.UserID, content)
 	if err != nil {
 		errorResponse(w, err)
