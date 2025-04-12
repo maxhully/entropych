@@ -37,27 +37,27 @@ func (db *DB) GetRecentPosts(ctx context.Context, limit int) ([]Post, error) {
 	conn := db.dbpool.Get(ctx)
 	defer db.dbpool.Put(conn)
 
-	var posts []Post = make([]Post, 0)
+	var posts []Post
 
-	err := sqlitex.Exec(
-		conn,
-		`select post_id, user.name, created_at, content
+	query := `
+		select post_id, user.name, created_at, content
 		from post
 		join user using (user_id)
 		order by created_at desc
-		limit ?`,
-		func(stmt *sqlite.Stmt) error {
-			post := Post{
-				PostID:    stmt.ColumnInt64(0),
-				UserName:  stmt.ColumnText(1),
-				CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
-				Content:   stmt.ColumnText(3),
-			}
-			posts = append(posts, post)
-			return nil
-		},
-		limit,
-	)
+		limit ?`
+
+	collect := func(stmt *sqlite.Stmt) error {
+		post := Post{
+			PostID:    stmt.ColumnInt64(0),
+			UserName:  stmt.ColumnText(1),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			Content:   stmt.ColumnText(3),
+		}
+		posts = append(posts, post)
+		return nil
+	}
+
+	err := sqlitex.Exec(conn, query, collect, limit)
 	return posts, err
 }
 
@@ -67,18 +67,15 @@ func (db *DB) GetUserByName(ctx context.Context, name string) (*User, error) {
 
 	var user *User = nil
 
-	err := sqlitex.Exec(
-		conn,
-		"select user_id, name from user where name = ? limit 1",
-		func(stmt *sqlite.Stmt) error {
-			user = &User{
-				UserID: stmt.ColumnInt64(0),
-				Name:   stmt.ColumnText(1),
-			}
-			return nil
-		},
-		name,
-	)
+	query := "select user_id, name from user where name = ? limit 1"
+	collect := func(stmt *sqlite.Stmt) error {
+		user = &User{
+			UserID: stmt.ColumnInt64(0),
+			Name:   stmt.ColumnText(1),
+		}
+		return nil
+	}
+	err := sqlitex.Exec(conn, query, collect, name)
 	return user, err
 }
 
@@ -95,30 +92,30 @@ func (db *DB) CreatePost(ctx context.Context, userID int64, content string) (*Po
 
 	var post *Post = nil
 
-	err := sqlitex.Exec(conn, "insert into post (user_id, created_at, content) values (?, ?, ?)", nil, userID, time.Now().UTC().Unix(), content)
+	query := "insert into post (user_id, created_at, content) values (?, ?, ?)"
+
+	err := sqlitex.Exec(conn, query, nil, userID, time.Now().UTC().Unix(), content)
 	if err != nil {
 		return nil, err
 	}
 	postID := conn.LastInsertRowID()
 
-	err = sqlitex.Exec(
-		conn,
-		`select post_id, user.name, created_at, content
+	query = `
+		select post_id, user.name, created_at, content
 		from post
 		join user using (user_id)
-		where post_id = ?`,
-		func(stmt *sqlite.Stmt) error {
-			post = &Post{
-				PostID:    stmt.ColumnInt64(0),
-				UserName:  stmt.ColumnText(1),
-				CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
-				Content:   stmt.ColumnText(3),
-			}
-			return nil
-		},
-		postID,
-	)
+		where post_id = ?`
 
+	collect := func(stmt *sqlite.Stmt) error {
+		post = &Post{
+			PostID:    stmt.ColumnInt64(0),
+			UserName:  stmt.ColumnText(1),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			Content:   stmt.ColumnText(3),
+		}
+		return nil
+	}
+	err = sqlitex.Exec(conn, query, collect, postID)
 	return post, err
 }
 
@@ -128,7 +125,8 @@ func (db *DB) CreateUser(ctx context.Context, name string, passwordSalt []byte, 
 
 	var user *User = nil
 
-	err := sqlitex.Exec(conn, "insert into user (name, password_salt, password_hash) values (?, ?, ?)", nil, name, passwordSalt, passwordHash)
+	query := "insert into user (name, password_salt, password_hash) values (?, ?, ?)"
+	err := sqlitex.Exec(conn, query, nil, name, passwordSalt, passwordHash)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +223,17 @@ func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
 type SignUpForm struct {
 	Name     string
 	Password string
-	Errors   map[string][]string
+	// rename to Problems?
+	Errors map[string][]string
+}
+
+func (f *SignUpForm) ParseFrom(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return err
+	}
+	f.Name = r.PostForm.Get("name")
+	f.Password = r.PostForm.Get("password")
+	return nil
 }
 
 func (f *SignUpForm) PushError(fieldName string, errorMessage string) {
@@ -237,18 +245,15 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, "sign_up.html", SignUpForm{})
 		return
 	}
-	// Max length for username and password
-	const maxLength = 256
 
-	if err := r.ParseForm(); err != nil {
-		errorResponse(w, err)
+	var form SignUpForm
+	if err := form.ParseFrom(r); err != nil {
+		badRequest(w)
 		return
 	}
-	form := SignUpForm{
-		Name:     r.PostForm.Get("name"),
-		Password: r.PostForm.Get("password"),
-		Errors:   make(map[string][]string),
-	}
+
+	// Max length for username and password
+	const maxLength = 256
 
 	if len(form.Name) == 0 {
 		form.PushError("name", "Name is required")
@@ -265,9 +270,9 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if len(form.Name) == 0 {
+	if len(form.Password) == 0 {
 		form.PushError("password", "Password is required")
-	} else if len(form.Name) > maxLength {
+	} else if len(form.Password) > maxLength {
 		form.PushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
 	}
 
@@ -294,6 +299,10 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
+func badRequest(w http.ResponseWriter) {
+	http.Error(w, "400 Bad Request", http.StatusBadRequest)
+}
+
 func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	// TODO: authentication and stuff
 	user, err := app.db.GetUserByName(r.Context(), "Max")
@@ -302,7 +311,7 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = r.ParseForm(); err != nil {
-		errorResponse(w, err)
+		badRequest(w)
 		return
 	}
 	content := r.PostForm.Get("content")
