@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -25,9 +26,12 @@ func (u *User) Exists() bool {
 	return u.UserID > 0
 }
 
-// TODO: maybe I should refactor this so that all these methods take a connection,
-// instead of checking them in and out of the pool. Then we could check out the
-// connection at the start of the request.
+// It seems like a lot of go code ties the connection to the context (and passes around
+// the context), rather than passing around the actual connection. But I'm happy with
+// passing around the connection (for now, at least).
+//
+// I'm curious if there's a way that I can make the db error handling nicer. We don't
+// want to panic, but we also don't expect them to happen almost ever.
 type DB struct {
 	dbpool *sqlitex.Pool
 }
@@ -103,10 +107,14 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (*Post, error) 
 	return post, err
 }
 
-func CreateUser(conn *sqlite.Conn, name string, passwordHashAndSalt *HashAndSalt) (*User, error) {
-	query := "insert into user (name, password_salt, password_hash) values (?, ?, ?)"
+func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) {
+	hashAndSalt, err := HashAndSaltPassword([]byte(password))
+	if err != nil {
+		return nil, err
+	}
 
-	err := sqlitex.Exec(conn, query, nil, name, passwordHashAndSalt.Salt, passwordHashAndSalt.Hash)
+	query := "insert into user (name, password_salt, password_hash) values (?, ?, ?)"
+	err = sqlitex.Exec(conn, query, nil, name, hashAndSalt.Salt, hashAndSalt.Hash)
 	if err != nil {
 		return nil, err
 	}
@@ -227,64 +235,134 @@ func (f *SignUpForm) PushError(fieldName string, errorMessage string) {
 	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
 }
 
+func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
+	// Max length for username and password
+	const maxLength = 256
+
+	if len(f.Name) == 0 {
+		f.PushError("name", "Name is required")
+	} else if len(f.Name) > maxLength {
+		f.PushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
+	} else {
+		existingUserWithName, err := GetUserByName(conn, f.Name)
+		if err != nil {
+			return err
+		}
+		if existingUserWithName != nil {
+			f.PushError("name", "A user with this name already exists")
+		}
+	}
+
+	if len(f.Password) == 0 {
+		f.PushError("password", "Password is required")
+	} else if len(f.Password) > maxLength {
+		f.PushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
+	}
+	return nil
+}
+
 func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	if r.Method != http.MethodPost {
-		app.RenderTemplate(w, "sign_up.html", SignUpForm{})
-		return
+	form := SignUpForm{
+		Errors: make(map[string][]string),
 	}
 
-	var form SignUpForm
+	if r.Method != http.MethodPost {
+		app.RenderTemplate(w, "sign_up.html", form)
+		return
+	}
 	if err := form.ParseFrom(r); err != nil {
 		badRequest(w)
 		return
 	}
-
-	// Max length for username and password
-	const maxLength = 256
-
-	if len(form.Name) == 0 {
-		form.PushError("name", "Name is required")
-	} else if len(form.Name) > maxLength {
-		form.PushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
-	} else {
-		existingUserWithName, err := GetUserByName(conn, form.Name)
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		if existingUserWithName != nil {
-			form.PushError("name", "A user with this name already exists")
-		}
+	if err := form.Validate(conn); err != nil {
+		errorResponse(w, err)
+		return
 	}
-
-	if len(form.Password) == 0 {
-		form.PushError("password", "Password is required")
-	} else if len(form.Password) > maxLength {
-		form.PushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
-	}
-
 	if len(form.Errors) > 0 {
 		app.RenderTemplate(w, "sign_up.html", form)
 		return
 	}
 
-	hashAndSalt, err := HashAndSaltPassword([]byte(form.Password))
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	_, err = CreateUser(conn, form.Name, hashAndSalt)
-
-	if err != nil {
+	if _, err := CreateUser(conn, form.Name, form.Password); err != nil {
 		errorResponse(w, err)
 		return
 	}
 
 	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(form.Name))
 	http.Redirect(w, r, url, http.StatusSeeOther)
+}
+
+type LogInForm = SignUpForm
+
+// Writing errors onto the login form is probably a bad way to do this, in terms of API design.
+// But it's a starting point.
+func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (canLogIn bool, err error) {
+	var hashAndSalt HashAndSalt
+	foundUser := false
+	query := "select password_salt, password_hash from user where name = ? limit 1"
+	collect := func(stmt *sqlite.Stmt) error {
+		var err error
+		if hashAndSalt.Salt, err = io.ReadAll(stmt.ColumnReader(0)); err != nil {
+			return err
+		}
+		if hashAndSalt.Hash, err = io.ReadAll(stmt.ColumnReader(1)); err != nil {
+			return err
+		}
+		foundUser = true
+		return err
+	}
+	if err := sqlitex.Exec(conn, query, collect, form.Name); err != nil {
+		return false, err
+	}
+	if !foundUser {
+		// Some people discourage revealing this information in your login form, for
+		// security reasons. But this is a social networking site where the existence of
+		// a user with a given username is public knowledge. (Also, even on a private
+		// site, the registration form will often give away this info anyways.)
+		form.PushError("name", "There is no user with this name")
+		return false, nil
+	}
+
+	canLogIn = CheckPassword([]byte(form.Password), hashAndSalt)
+	if !canLogIn {
+		form.PushError("password", "This password is incorrect")
+	}
+
+	return canLogIn, nil
+}
+
+func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.dbpool.Get(r.Context())
+	defer app.db.dbpool.Put(conn)
+
+	form := LogInForm{
+		Errors: make(map[string][]string),
+	}
+	if r.Method != http.MethodPost {
+		app.RenderTemplate(w, "log_in.html", form)
+		return
+	}
+	if err := form.ParseFrom(r); err != nil {
+		badRequest(w)
+		return
+	}
+
+	canLogIn, err := checkLogInForm(conn, &form)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if !canLogIn {
+		app.RenderTemplate(w, "log_in.html", form)
+		return
+	}
+
+	// TODO: set session cookie
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func badRequest(w http.ResponseWriter) {
@@ -333,6 +411,8 @@ func main() {
 	mux.HandleFunc("/user", app.HelloUser)
 	mux.HandleFunc("GET /signup", app.SignUpUser)
 	mux.HandleFunc("POST /signup", app.SignUpUser)
+	mux.HandleFunc("GET /login", app.LogIn)
+	mux.HandleFunc("POST /login", app.LogIn)
 	mux.HandleFunc("POST /posts/new", app.NewPost)
 	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
 	http.ListenAndServe(":7777", mux)

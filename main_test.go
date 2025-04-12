@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func checkBodyContains(t *testing.T, resp *http.Response, substr string) {
 	body := string(bodyBytes)
 
 	if !strings.Contains(body, substr) {
-		t.Errorf("expected %v in the body:\n%s", substr, body)
+		t.Errorf("expected %#v in the body:\n%s", substr, body)
 	}
 }
 
@@ -43,6 +44,7 @@ func TestHomepage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer app.db.dbpool.Close()
 
 	r, _ := http.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -61,6 +63,7 @@ func TestSignUpUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer app.db.dbpool.Close()
 
 	r, _ := http.NewRequest(http.MethodGet, "/signup", nil)
 	w := httptest.NewRecorder()
@@ -93,5 +96,52 @@ func TestSignUpUser(t *testing.T) {
 	}
 	if user.Name != "Max" {
 		t.Errorf("expected Max, got %s", user.Name)
+	}
+}
+
+func TestLogInUser(t *testing.T) {
+	var testCases = []struct {
+		name                 string
+		password             string
+		expectedStatus       int
+		expectedErrorMessage string
+	}{
+		{"max", "wrongpassword", 200, "password is incorrect"},
+		{"notmax", "secretpassword123", 200, "no user with this name"},
+		{"max", "secretpassword123", 303, ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%v", testCase), func(t *testing.T) {
+			app, err := setUpTestApp()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.db.dbpool.Close()
+
+			{
+				conn := app.db.dbpool.Get(context.TODO())
+				CreateUser(conn, "max", "secretpassword123")
+				app.db.dbpool.Put(conn)
+			}
+
+			form := url.Values{}
+			form.Add("name", testCase.name)
+			form.Add("password", testCase.password)
+
+			r, _ := http.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+
+			app.LogIn(w, r)
+
+			result := w.Result()
+			if result.StatusCode != testCase.expectedStatus {
+				t.Fatalf("expected %d, got %d", testCase.expectedStatus, result.StatusCode)
+			}
+			if len(testCase.expectedErrorMessage) > 0 {
+				checkBodyContains(t, result, testCase.expectedErrorMessage)
+			}
+		})
 	}
 }
