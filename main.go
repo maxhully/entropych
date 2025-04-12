@@ -215,14 +215,18 @@ func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
 	app.RenderTemplate(w, "hello.html", user)
 }
 
-type SignUpForm struct {
+type nameAndPasswordForm struct {
 	Name     string
 	Password string
 	// rename to Problems?
 	Errors map[string][]string
 }
 
-func (f *SignUpForm) ParseFrom(r *http.Request) error {
+type SignUpForm struct {
+	nameAndPasswordForm
+}
+
+func (f *nameAndPasswordForm) ParseFrom(r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
@@ -231,8 +235,14 @@ func (f *SignUpForm) ParseFrom(r *http.Request) error {
 	return nil
 }
 
-func (f *SignUpForm) PushError(fieldName string, errorMessage string) {
+func (f *nameAndPasswordForm) PushError(fieldName string, errorMessage string) {
 	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
+}
+
+func newSignUpForm() SignUpForm {
+	return SignUpForm{nameAndPasswordForm{
+		Errors: make(map[string][]string),
+	}}
 }
 
 func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
@@ -265,9 +275,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	form := SignUpForm{
-		Errors: make(map[string][]string),
-	}
+	form := newSignUpForm()
 
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, "sign_up.html", form)
@@ -295,7 +303,9 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
-type LogInForm = SignUpForm
+type LogInForm struct {
+	nameAndPasswordForm
+}
 
 // Writing errors onto the login form is probably a bad way to do this, in terms of API design.
 // But it's a starting point.
@@ -334,13 +344,17 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (canLogIn bool, err erro
 	return canLogIn, nil
 }
 
+func newLogInForm() LogInForm {
+	return LogInForm{nameAndPasswordForm{
+		Errors: make(map[string][]string),
+	}}
+}
+
 func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.dbpool.Get(r.Context())
 	defer app.db.dbpool.Put(conn)
 
-	form := LogInForm{
-		Errors: make(map[string][]string),
-	}
+	form := newLogInForm()
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, "log_in.html", form)
 		return
