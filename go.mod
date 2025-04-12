@@ -1,4 +1,4 @@
-module github.com/maxhully/messing_with_go
+module github.com/maxhully/entropy
 
 go 1.23.0
 

@@ -10,8 +10,10 @@ import (
 	"html/template"
 	"io"
 	"log"
+	mathrand "math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -35,8 +37,42 @@ func (u *User) Exists() bool {
 //
 // I'm curious if there's a way that I can make the db error handling nicer. We don't
 // want to panic, but we also don't expect them to happen almost ever.
+//
+// ...Maybe I _do_ want to panic on unexpected SQLite errors?
 type DB struct {
 	dbpool *sqlitex.Pool
+}
+
+func randomContentRune() rune {
+	// TODO: find more fun content ranges
+	// This is the "Basic Latin" range of code points
+	minRune := 0x0020
+	maxRune := 0x007F
+	i := mathrand.Intn(maxRune - minRune)
+	return rune(minRune + i)
+}
+
+const maxGraphDistance = 6.0
+
+func DistortContent(content string, graphDistance int) string {
+	if graphDistance == 0 {
+		return content
+	}
+	var builder strings.Builder
+	builder.Grow(len(content))
+
+	// graphDistance is between 1 and 6, say.
+	p := min(float32(graphDistance)/maxGraphDistance, 1.0)
+
+	// TODO: wrap the errors in <mark> tags in a different style
+	for _, r := range content {
+		if mathrand.Float32() > p {
+			builder.WriteRune(r)
+		} else {
+			builder.WriteRune(randomContentRune())
+		}
+	}
+	return builder.String()
 }
 
 func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
@@ -204,6 +240,9 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	posts, err := GetRecentPosts(conn, 10)
+	for i := range posts {
+		posts[i].Content = DistortContent(posts[i].Content, 1)
+	}
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -546,12 +585,10 @@ func getUserIfLoggedIn(conn *sqlite.Conn, r *http.Request) (*User, error) {
 }
 
 func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
-	// TODO: csrf protection
 	ClearSessionCookie(w)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// I might call this distorted.social, since entropy.social is taken
 func main() {
 	// Might want this to be in a secret file instead
 	secretKeyFlag := flag.String("secret-key", "", "Secret key for signed cookies (hex encoded)")
