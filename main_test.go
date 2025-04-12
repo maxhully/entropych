@@ -85,7 +85,9 @@ func TestSignUpUser(t *testing.T) {
 		t.Fatalf("expected 303 See Other, got %d", result.StatusCode)
 	}
 
-	user, err := app.db.GetUserByName(context.TODO(), "Max")
+	conn := app.db.dbpool.Get(context.TODO())
+	defer app.db.dbpool.Put(conn)
+	user, err := GetUserByName(conn, "Max")
 	if err != nil {
 		t.Error(err)
 	}
