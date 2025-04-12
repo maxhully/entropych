@@ -228,11 +228,17 @@ type SignUpForm struct {
 	Errors   map[string][]string
 }
 
+func (f *SignUpForm) PushError(fieldName string, errorMessage string) {
+	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
+}
+
 func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, "sign_up.html", SignUpForm{})
 		return
 	}
+	// Max length for username and password
+	const maxLength = 256
 
 	r.ParseForm()
 	form := SignUpForm{
@@ -241,13 +247,27 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		Errors:   make(map[string][]string),
 	}
 
-	// TODO: more validation (max length, check if user already exists)
 	if len(form.Name) == 0 {
-		form.Errors["name"] = append(form.Errors["name"], "Name is required")
+		form.PushError("name", "Name is required")
+	} else if len(form.Name) > maxLength {
+		form.PushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
+	} else {
+		existingUserWithName, err := app.db.GetUserByName(r.Context(), form.Name)
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
+		if existingUserWithName != nil {
+			form.PushError("name", "A user with this name already exists")
+		}
 	}
-	if len(form.Password) == 0 {
-		form.Errors["password"] = append(form.Errors["password"], "Password is required")
+
+	if len(form.Name) == 0 {
+		form.PushError("password", "Password is required")
+	} else if len(form.Name) > maxLength {
+		form.PushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
 	}
+
 	if len(form.Errors) > 0 {
 		app.RenderTemplate(w, "sign_up.html", form)
 		return
@@ -260,12 +280,13 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := HashPassword([]byte(form.Password), salt)
-
 	_, err = app.db.CreateUser(r.Context(), form.Name, salt, hash)
+
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
+
 	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(form.Name))
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
