@@ -12,6 +12,7 @@ import (
 	"log"
 	mathrand "math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -97,6 +98,29 @@ func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
 	return posts, err
 }
 
+func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post, error) {
+	var posts []Post
+	query := `
+		select post_id, user.name, created_at, content
+		from post
+		join user using (user_id)
+		where user_id = ?
+		order by created_at desc
+		limit ?`
+	collect := func(stmt *sqlite.Stmt) error {
+		post := Post{
+			PostID:    stmt.ColumnInt64(0),
+			UserName:  stmt.ColumnText(1),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			Content:   stmt.ColumnText(3),
+		}
+		posts = append(posts, post)
+		return nil
+	}
+	err := sqlitex.Exec(conn, query, collect, userID, limit)
+	return posts, err
+}
+
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
 	query := "select user_id, name from user where name = ? limit 1"
@@ -116,6 +140,10 @@ type Post struct {
 	UserName  string
 	CreatedAt time.Time
 	Content   string
+}
+
+func (p *Post) UserURL() string {
+	return fmt.Sprintf("/u/%s/", url.PathEscape(p.UserName))
 }
 
 func utcNow() time.Time {
@@ -248,6 +276,46 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app.RenderTemplate(w, "index.html", homepage{User: user, Posts: posts, CSRFField: csrf.TemplateField(r)})
+}
+
+type userPostsPage struct {
+	LoggedInUser *User
+	PostingUser  *User
+	Posts        []Post
+}
+
+func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.dbpool.Get(r.Context())
+	defer app.db.dbpool.Put(conn)
+
+	postingUserName := r.PathValue("username")
+	postingUser, err := GetUserByName(conn, postingUserName)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if postingUser == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// TODO: do we need this?
+	user, err := getUserIfLoggedIn(conn, r)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+
+	posts, err := GetRecentPostsFromUser(conn, postingUser.UserID, 10)
+	for i := range posts {
+		// TODO: figure out distance from user
+		posts[i].Content = DistortContent(posts[i].Content, 1)
+	}
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	app.RenderTemplate(w, "user_posts.html", userPostsPage{LoggedInUser: user, PostingUser: postingUser, Posts: posts})
 }
 
 type nameAndPasswordForm struct {
@@ -596,14 +664,19 @@ func main() {
 	app := NewApp(db)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", app.Homepage)
+	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
+
+	mux.HandleFunc("/{$}", app.Homepage)
+
 	mux.HandleFunc("GET /signup", app.SignUpUser)
 	mux.HandleFunc("POST /signup", app.SignUpUser)
 	mux.HandleFunc("GET /login", app.LogIn)
 	mux.HandleFunc("POST /login", app.LogIn)
 	mux.HandleFunc("POST /logout", app.LogOut)
+
 	mux.HandleFunc("POST /posts/new", app.NewPost)
-	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
+
+	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
 
