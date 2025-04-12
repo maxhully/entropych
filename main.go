@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"html/template"
@@ -16,8 +17,6 @@ import (
 	"github.com/oxtoacart/bpool"
 )
 
-var bufpool *bpool.BufferPool
-
 type User struct {
 	UserID int64
 	Name   string
@@ -27,6 +26,9 @@ func (u *User) Exists() bool {
 	return u.UserID > 0
 }
 
+// TODO: maybe I should refactor this so that all these methods take a connection,
+// instead of checking them in and out of the pool. Then we could check out the
+// connection at the start of the request.
 type DB struct {
 	dbpool *sqlitex.Pool
 }
@@ -120,13 +122,13 @@ func (db *DB) CreatePost(ctx context.Context, userID int64, content string) (*Po
 	return post, err
 }
 
-func (db *DB) CreateUser(ctx context.Context, name string) (*User, error) {
+func (db *DB) CreateUser(ctx context.Context, name string, passwordSalt []byte, passwordHash []byte) (*User, error) {
 	conn := db.dbpool.Get(ctx)
 	defer db.dbpool.Put(conn)
 
 	var user *User = nil
 
-	err := sqlitex.Exec(conn, "insert into user (name) values (?)", nil, name)
+	err := sqlitex.Exec(conn, "insert into user (name, password_salt, password_hash) values (?, ?, ?)", nil, name, passwordSalt, passwordHash)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +139,7 @@ func (db *DB) CreateUser(ctx context.Context, name string) (*User, error) {
 
 type App struct {
 	templates *template.Template
+	bufpool   *bpool.BufferPool
 	db        *DB
 }
 
@@ -149,19 +152,14 @@ func setUpDb(conn *sqlite.Conn) error {
 	return sqlitex.ExecScript(conn, sql)
 }
 
-func NewDB() (*DB, error) {
-	dbpool, err := sqlitex.Open("test.db", 0, 10)
-	if err != nil {
-		return nil, err
-	}
-
+func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 	conn := dbpool.Get(context.TODO())
 	if conn == nil {
 		return nil, errors.New("couldn't get a connection")
 	}
 	defer dbpool.Put(conn)
 
-	err = setUpDb(conn)
+	err := setUpDb(conn)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't set up db: %s", err)
 	}
@@ -173,6 +171,7 @@ func NewApp(db *DB) *App {
 	return &App{
 		templates: template.Must(template.ParseGlob("templates/*")),
 		db:        db,
+		bufpool:   bpool.NewBufferPool(48),
 	}
 }
 
@@ -184,8 +183,8 @@ func errorResponse(w http.ResponseWriter, err error) {
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	// We render to a buffer (from the buffer pool) so that we can handle template
 	// execution errors (without sending half a template response first).
-	buf := bufpool.Get()
-	defer bufpool.Put(buf)
+	buf := app.bufpool.Get()
+	defer app.bufpool.Put(buf)
 	err := app.templates.ExecuteTemplate(buf, name, data)
 	if err != nil {
 		errorResponse(w, err)
@@ -195,15 +194,16 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	buf.WriteTo(w)
 }
 
-func (app *App) homepage(w http.ResponseWriter, r *http.Request) {
+func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	posts, err := app.db.GetRecentPosts(r.Context(), 10)
 	if err != nil {
 		errorResponse(w, err)
+		return
 	}
 	app.RenderTemplate(w, "index.html", posts)
 }
 
-func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
+func (app *App) HelloUser(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	name := q.Get("name")
 	if name == "" {
@@ -222,24 +222,55 @@ func (app *App) helloUser(w http.ResponseWriter, r *http.Request) {
 	app.RenderTemplate(w, "hello.html", user)
 }
 
-func (app *App) createUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		app.RenderTemplate(w, "create.html", nil)
+type SignUpForm struct {
+	Name     string
+	Password string
+	Errors   map[string][]string
+}
+
+func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		app.RenderTemplate(w, "sign_up.html", SignUpForm{})
 		return
 	}
+
 	r.ParseForm()
-	name := r.PostForm.Get("name")
-	// TODO: validation
-	_, err := app.db.CreateUser(r.Context(), name)
+	form := SignUpForm{
+		Name:     r.PostForm.Get("name"),
+		Password: r.PostForm.Get("password"),
+		Errors:   make(map[string][]string),
+	}
+
+	// TODO: more validation (max length)
+	if len(form.Name) == 0 {
+		form.Errors["name"] = append(form.Errors["name"], "Name is required")
+	}
+	if len(form.Password) == 0 {
+		form.Errors["password"] = append(form.Errors["password"], "Password is required")
+	}
+	if len(form.Errors) > 0 {
+		app.RenderTemplate(w, "sign_up.html", form)
+		return
+	}
+
+	salt := make([]byte, 32)
+	_, err := rand.Read(salt)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
-	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(name))
+	hash := HashPassword([]byte(form.Password), salt)
+
+	_, err = app.db.CreateUser(r.Context(), form.Name, salt, hash)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	url := fmt.Sprintf("/user?name=%s", url.QueryEscape(form.Name))
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
-func (app *App) createPost(w http.ResponseWriter, r *http.Request) {
+func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	// TODO: authentication and stuff
 	user, err := app.db.GetUserByName(r.Context(), "Max")
 	if err != nil {
@@ -260,21 +291,24 @@ func (app *App) createPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// I might call this distorted.social, since entropy.social is taken
 func main() {
-	db, err := NewDB()
+	dbpool, err := sqlitex.Open("test.db", 0, 10)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := NewDB(dbpool)
 	if err != nil {
 		log.Fatal(err)
 	}
 	app := NewApp(db)
 
-	bufpool = bpool.NewBufferPool(48)
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", app.homepage)
-	mux.HandleFunc("/user", app.helloUser)
-	mux.HandleFunc("GET /users/new", app.createUser)
-	mux.HandleFunc("POST /users/new", app.createUser)
-	mux.HandleFunc("POST /posts/new", app.createPost)
+	mux.HandleFunc("/", app.Homepage)
+	mux.HandleFunc("/user", app.HelloUser)
+	mux.HandleFunc("GET /signup", app.SignUpUser)
+	mux.HandleFunc("POST /signup", app.SignUpUser)
+	mux.HandleFunc("POST /posts/new", app.NewPost)
 	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
 	http.ListenAndServe(":7777", mux)
 }
