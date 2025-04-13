@@ -66,7 +66,7 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	posts, err := entropy.GetRecentPosts(conn, 10)
+	posts, err := entropy.GetRecentPosts(conn, 50)
 	for i := range posts {
 		posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
 	}
@@ -114,7 +114,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 10)
+	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
 	for i := range posts {
 		// TODO: figure out distance from user
 		posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
