@@ -4,6 +4,10 @@
 </p>
 
 <h1>{{.PostingUser.Name}}</h1>
+<p>
+    followers: {{.PostingUserFollowStats.FollowerCount}},
+    following: {{.PostingUserFollowStats.FollowingCount}}
+</p>
 
 {{if .LoggedInUser }}
 {{if eq .LoggedInUser.UserID .PostingUser.UserID }}

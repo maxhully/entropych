@@ -256,3 +256,39 @@ func IsFollowing(conn *sqlite.Conn, userID int64, followedUserID int64) (bool, e
 	err := sqlitex.Exec(conn, query, collect, userID, followedUserID)
 	return isFollowing, err
 }
+
+type UserFollowStats struct {
+	UserID         int64
+	FollowingCount int64
+	FollowerCount  int64
+}
+
+func GetUserFollowStats(conn *sqlite.Conn, userID int64) (*UserFollowStats, error) {
+	query := `
+		with follows as (
+			select user_id, count(*) as following_count
+			from user_follow
+			where user_id = ?
+			group by user_id
+		),
+		followers as (
+			select followed_user_id as user_id, count(*) as follower_count
+			from user_follow
+			where followed_user_id = ?
+			group by followed_user_id
+		)
+		select
+			following_count,
+			follower_count
+		from follows
+		join followers using (user_id)
+		`
+	stats := &UserFollowStats{UserID: userID}
+	collect := func(stmt *sqlite.Stmt) error {
+		stats.FollowingCount = stmt.ColumnInt64(0)
+		stats.FollowerCount = stmt.ColumnInt64(1)
+		return nil
+	}
+	err := sqlitex.Exec(conn, query, collect, userID, userID)
+	return stats, err
+}

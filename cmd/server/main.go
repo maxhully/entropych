@@ -82,6 +82,7 @@ type userPostsPage struct {
 	PostingUser            *entropy.User
 	Posts                  []entropy.Post
 	IsFollowingPostingUser bool
+	PostingUserFollowStats *entropy.UserFollowStats
 	CSRFField              template.HTML
 }
 
@@ -115,10 +116,15 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
 	for i := range posts {
 		// TODO: figure out distance from user
 		posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
 	}
+	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -128,6 +134,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		PostingUser:            postingUser,
 		Posts:                  posts,
 		IsFollowingPostingUser: isFollowing,
+		PostingUserFollowStats: stats,
 		CSRFField:              csrf.TemplateField(r),
 	}
 	app.RenderTemplate(w, "user_posts.html", page)

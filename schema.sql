@@ -6,6 +6,7 @@ create table if not exists user (
     password_hash blob,
     password_salt blob
 );
+create unique index if not exists user_name_uniq_idx on user (name);
 
 create table if not exists post (
     post_id integer primary key not null,
