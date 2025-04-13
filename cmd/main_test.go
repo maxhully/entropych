@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/maxhully/entropy"
 )
 
 func setUpTestApp() (*App, error) {
@@ -18,7 +19,7 @@ func setUpTestApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := NewDB(dbpool)
+	db, err := entropy.NewDB(dbpool)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func TestHomepage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer app.db.dbpool.Close()
+	defer app.db.Close()
 
 	r, _ := http.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -55,7 +56,7 @@ func TestHomepage(t *testing.T) {
 	if result.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 OK, got %d", result.StatusCode)
 	}
-	checkBodyContains(t, result, "Hello!")
+	checkBodyContains(t, result, "Hello, stranger!")
 }
 
 func TestSignUpUser(t *testing.T) {
@@ -63,7 +64,7 @@ func TestSignUpUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer app.db.dbpool.Close()
+	defer app.db.Close()
 
 	r, _ := http.NewRequest(http.MethodGet, "/signup", nil)
 	w := httptest.NewRecorder()
@@ -88,9 +89,9 @@ func TestSignUpUser(t *testing.T) {
 		t.Fatalf("expected 303 See Other, got %d", result.StatusCode)
 	}
 
-	conn := app.db.dbpool.Get(context.TODO())
-	defer app.db.dbpool.Put(conn)
-	user, err := GetUserByName(conn, "Max")
+	conn := app.db.Get(context.TODO())
+	defer app.db.Put(conn)
+	user, err := entropy.GetUserByName(conn, "Max")
 	if err != nil {
 		t.Error(err)
 	}
@@ -117,12 +118,12 @@ func TestLogInUser(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer app.db.dbpool.Close()
+			defer app.db.Close()
 
 			{
-				conn := app.db.dbpool.Get(context.TODO())
-				CreateUser(conn, "max", "secretpassword123")
-				app.db.dbpool.Put(conn)
+				conn := app.db.Get(context.TODO())
+				entropy.CreateUser(conn, "max", "secretpassword123")
+				app.db.Put(conn)
 			}
 
 			form := url.Values{}
@@ -146,8 +147,8 @@ func TestLogInUser(t *testing.T) {
 				if len(cookies) != 1 {
 					t.Errorf("expected 1 cookie set; got %d", len(cookies))
 				}
-				if cookies[0].Name != sessionIdCookieName {
-					t.Errorf("expected cookie named %#v; got %#v", sessionIdCookieName, cookies[0].Name)
+				if cookies[0].Name != "id" {
+					t.Errorf("expected cookie named %#v; got %#v", "id", cookies[0].Name)
 				}
 			}
 		})

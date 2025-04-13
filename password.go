@@ -1,4 +1,4 @@
-package main
+package entropy
 
 import (
 	"crypto/rand"
