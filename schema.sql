@@ -23,3 +23,13 @@ create table if not exists user_session (
     expiration_time integer not null /* unix timestamp */
 );
 create index if not exists user_session_session_public_id_idx on user_session (session_public_id);
+
+create table if not exists user_follow (
+    /* I didn't call this follower_user_id because it's only one letter away from followed_user_id,
+    and that sounds confusing. Plus this means we can join to use `using (user_id)` to get all the
+    users you follow. */
+    user_id integer not null references user(user_id), /* the following user */
+    followed_user_id integer not null references user(user_id), /* the followed user */
+    followed_at integer not null, /* unix timestamp */
+    primary key (user_id, followed_user_id)
+);

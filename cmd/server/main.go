@@ -78,9 +78,11 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 }
 
 type userPostsPage struct {
-	LoggedInUser *entropy.User
-	PostingUser  *entropy.User
-	Posts        []entropy.Post
+	LoggedInUser           *entropy.User
+	PostingUser            *entropy.User
+	Posts                  []entropy.Post
+	IsFollowingPostingUser bool
+	CSRFField              template.HTML
 }
 
 func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +99,19 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-
-	// TODO: do we need this?
 	user, err := entropy.GetUserIfLoggedIn(conn, r)
 	if err != nil {
 		errorResponse(w, err)
 		return
+	}
+	isFollowing := false
+	if user != nil && postingUser.UserID != user.UserID {
+		// TODO: I could consolidate these queries
+		isFollowing, err = entropy.IsFollowing(conn, user.UserID, postingUser.UserID)
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
 	}
 
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 10)
@@ -114,7 +123,14 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	app.RenderTemplate(w, "user_posts.html", userPostsPage{LoggedInUser: user, PostingUser: postingUser, Posts: posts})
+	page := &userPostsPage{
+		LoggedInUser:           user,
+		PostingUser:            postingUser,
+		Posts:                  posts,
+		IsFollowingPostingUser: isFollowing,
+		CSRFField:              csrf.TemplateField(r),
+	}
+	app.RenderTemplate(w, "user_posts.html", page)
 }
 
 type nameAndPasswordForm struct {
@@ -144,8 +160,8 @@ type SignUpForm struct {
 	nameAndPasswordForm
 }
 
-func newSignUpForm(r *http.Request) SignUpForm {
-	return SignUpForm{nameAndPasswordForm{
+func newSignUpForm(r *http.Request) *SignUpForm {
+	return &SignUpForm{nameAndPasswordForm{
 		CSRFField: csrf.TemplateField(r),
 		Errors:    make(map[string][]string),
 	}}
@@ -305,6 +321,17 @@ func badRequest(w http.ResponseWriter) {
 	http.Error(w, "400 Bad Request", http.StatusBadRequest)
 }
 
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	// Clear the session cookie in case it has expired
+	entropy.ClearSessionCookie(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
+	entropy.ClearSessionCookie(w)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -332,15 +359,38 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func redirectToLogin(w http.ResponseWriter, r *http.Request) {
-	// Clear the session cookie in case it has expired
-	entropy.ClearSessionCookie(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
-}
+func (app *App) FollowUser(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
 
-func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
-	entropy.ClearSessionCookie(w)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	user, err := entropy.GetUserIfLoggedIn(conn, r)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if user == nil {
+		redirectToLogin(w, r)
+		return
+	}
+
+	username := r.PathValue("username")
+	followedUser, err := entropy.GetUserByName(conn, username)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if followedUser == nil || user.UserID == followedUser.UserID {
+		http.NotFound(w, r)
+		return
+	}
+
+	err = entropy.FollowUser(conn, user.UserID, followedUser.UserID)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+
+	http.Redirect(w, r, followedUser.URL(), http.StatusSeeOther)
 }
 
 func main() {
@@ -385,6 +435,7 @@ func main() {
 	mux.HandleFunc("POST /posts/new", app.NewPost)
 
 	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
+	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
 

@@ -58,6 +58,14 @@ func (u *User) Exists() bool {
 	return u.UserID > 0
 }
 
+func (u *User) URL() string {
+	return userURL(u.Name)
+}
+
+func userURL(userName string) string {
+	return fmt.Sprintf("/u/%s/", url.PathEscape(userName))
+}
+
 type Post struct {
 	PostID    int64
 	UserName  string
@@ -66,7 +74,7 @@ type Post struct {
 }
 
 func (p *Post) UserURL() string {
-	return fmt.Sprintf("/u/%s/", url.PathEscape(p.UserName))
+	return userURL(p.UserName)
 }
 
 type UserSession struct {
@@ -223,5 +231,28 @@ func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*Use
 	}
 	err := sqlitex.Exec(conn, query, collect, sessionPublicID, utcNow().Unix())
 	return user, err
+}
 
+func FollowUser(conn *sqlite.Conn, userID int64, followedUserID int64) error {
+	if userID == followedUserID {
+		return fmt.Errorf("userID %d cannot follow itself", userID)
+	}
+	query := `
+		insert into user_follow (user_id, followed_user_id, followed_at)
+		values (?, ?, ?)
+		on conflict do nothing`
+	return sqlitex.Exec(conn, query, nil, userID, followedUserID, utcNow().Unix())
+}
+
+func IsFollowing(conn *sqlite.Conn, userID int64, followedUserID int64) (bool, error) {
+	query := "select 1 from user_follow where user_id = ? and followed_user_id = ?"
+	isFollowing := false
+	collect := func(stmt *sqlite.Stmt) error {
+		if stmt.ColumnInt64(0) == 1 {
+			isFollowing = true
+		}
+		return nil
+	}
+	err := sqlitex.Exec(conn, query, collect, userID, followedUserID)
+	return isFollowing, err
 }

@@ -2,7 +2,6 @@ package entropy
 
 import (
 	"embed"
-	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -48,7 +47,6 @@ func NewRenderer() (*Renderer, error) {
 		bufpool:          bpool.NewBufferPool(48),
 	}
 	paths, err := fs.Glob(templateFS, "templates/*.html")
-	fmt.Printf("paths: %v\n", paths)
 	if err != nil {
 		return nil, err
 	}

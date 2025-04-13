@@ -5,6 +5,21 @@
 
 <h1>{{.PostingUser.Name}}</h1>
 
+{{if .LoggedInUser }}
+{{if eq .LoggedInUser.UserID .PostingUser.UserID }}
+<p>(This is you)</p>
+{{else if .IsFollowingPostingUser}}
+<p>Following!</p>
+{{else}}
+<form method="post" action="{{.PostingUser.URL}}follow">
+    {{.CSRFField}}
+    <button>Follow</button>
+</form>
+{{end}}
+{{else}}
+<p>Log in to follow</p>
+{{end}}
+
 <ul>
     {{range .Posts}}
     <li>{{.UserName}} on {{.CreatedAt.Format "Jan 02 2006"}}: {{.Content}}</li>
