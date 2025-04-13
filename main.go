@@ -431,7 +431,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 
 	form := newSignUpForm(r)
 	if r.Method != http.MethodPost {
-		app.RenderTemplate(w, "sign_up.html", form)
+		app.RenderTemplate(w, "signup.html", form)
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
@@ -443,7 +443,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(form.Errors) > 0 {
-		app.RenderTemplate(w, "sign_up.html", form)
+		app.RenderTemplate(w, "signup.html", form)
 		return
 	}
 
@@ -577,7 +577,7 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 
 	form := newLogInForm(r)
 	if r.Method != http.MethodPost {
-		app.RenderTemplate(w, "log_in.html", form)
+		app.RenderTemplate(w, "login.html", form)
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
@@ -591,7 +591,7 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		app.RenderTemplate(w, "log_in.html", form)
+		app.RenderTemplate(w, "login.html", form)
 		return
 	}
 
