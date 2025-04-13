@@ -196,9 +196,10 @@ func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) 
 	return user, err
 }
 
+// Not sure how I feel about this. Is there a real point to having these Renderer and DB
+// structs in here, or should I flatten this out?
 type App struct {
 	renderer *Renderer
-	bufpool  *bpool.BufferPool
 	db       *DB
 }
 
@@ -234,6 +235,7 @@ func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 type Renderer struct {
 	templates        map[string]*template.Template
 	baseTemplateName string
+	bufpool          *bpool.BufferPool
 }
 
 func (r *Renderer) ExecuteTemplate(w io.Writer, name string, data any) error {
@@ -245,6 +247,7 @@ func NewRenderer(baseTemplatePath string, glob string) (*Renderer, error) {
 	renderer := Renderer{
 		templates:        make(map[string]*template.Template),
 		baseTemplateName: filepath.Base(baseTemplatePath),
+		bufpool:          bpool.NewBufferPool(48),
 	}
 	paths, err := filepath.Glob(glob)
 	if err != nil {
@@ -271,7 +274,6 @@ func NewApp(db *DB) *App {
 		// TODO: how do I make base templates work...?!
 		renderer: renderer,
 		db:       db,
-		bufpool:  bpool.NewBufferPool(48),
 	}
 }
 
@@ -285,8 +287,8 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	// execution errors (without sending half a template response first). This sounds
 	// reasonable to me, but I get the sense that we have all cargo culted this solution
 	// from various blog posts.
-	buf := app.bufpool.Get()
-	defer app.bufpool.Put(buf)
+	buf := app.renderer.bufpool.Get()
+	defer app.renderer.bufpool.Put(buf)
 	err := app.renderer.ExecuteTemplate(buf, name, data)
 	if err != nil {
 		errorResponse(w, err)
