@@ -1,36 +1,32 @@
-<html>
+{{define "main"}}
+<h1>Sign up</h1>
 
-<body>
-    <h1>Sign up</h1>
-
-    {{if ne (len .Errors) 0 }}
-    <ul>
-        {{range $name, $errors := .Errors}}
-        {{range $err := .}}
-        <li>{{$name}}: {{$err}}</li>
-        {{end}}
-        {{end}}
-    </ul>
+{{if ne (len .Errors) 0 }}
+<ul>
+    {{range $name, $errors := .Errors}}
+    {{range $err := .}}
+    <li>{{$name}}: {{$err}}</li>
     {{end}}
+    {{end}}
+</ul>
+{{end}}
 
-    <form method="post">
-        {{.CSRFField}}
-        <div>
-            <label>
-                Username:
-                <input type="text" name="name" required>
-            </label>
-        </div>
-        <div>
-            <label>
-                Password:
-                <input type="password" name="password" required>
-            </label>
-        </div>
-        <div>
-            <button>Sign up</button>
-        </div>
-    </form>
-</body>
-
-</html>
+<form method="post">
+    {{.CSRFField}}
+    <div>
+        <label>
+            Username:
+            <input type="text" name="name" required>
+        </label>
+    </div>
+    <div>
+        <label>
+            Password:
+            <input type="password" name="password" required>
+        </label>
+    </div>
+    <div>
+        <button>Sign up</button>
+    </div>
+</form>
+{{end}}
