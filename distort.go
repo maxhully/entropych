@@ -6,7 +6,7 @@ import (
 )
 
 func randomContentRune() rune {
-	// TODO: find more fun content ranges
+	// TODO: find more fun content ranges to include in the noise
 	// This is the "Basic Latin" range of code points
 	minRune := 0x0020
 	maxRune := 0x007F

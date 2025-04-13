@@ -1,3 +1,5 @@
+// Runs the entropy.social server
+
 package main
 
 import (
