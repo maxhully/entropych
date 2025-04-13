@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -196,9 +197,9 @@ func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) 
 }
 
 type App struct {
-	templates *template.Template
-	bufpool   *bpool.BufferPool
-	db        *DB
+	renderer *Renderer
+	bufpool  *bpool.BufferPool
+	db       *DB
 }
 
 func setUpDb(conn *sqlite.Conn) error {
@@ -225,11 +226,52 @@ func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 	return &DB{dbpool: dbpool}, nil
 }
 
+// This is a little abstraction around template.Template to make a "base" layout
+// template work.
+//
+// This is inspired mainly by staring at the pkgsite source code:
+// https://github.com/golang/pkgsite/blob/master/internal/frontend/templates/templates.go
+type Renderer struct {
+	templates        map[string]*template.Template
+	baseTemplateName string
+}
+
+func (r *Renderer) ExecuteTemplate(w io.Writer, name string, data any) error {
+	t := r.templates[name]
+	return t.ExecuteTemplate(w, r.baseTemplateName, data)
+}
+
+func NewRenderer(baseTemplatePath string, glob string) (*Renderer, error) {
+	renderer := Renderer{
+		templates:        make(map[string]*template.Template),
+		baseTemplateName: filepath.Base(baseTemplatePath),
+	}
+	paths, err := filepath.Glob(glob)
+	if err != nil {
+		return nil, err
+	}
+	// An awful lot of template.Must going on here...
+	// That's probably fine. Crashing on startup is kinda what we want anyway.
+	baseTemplate := template.Must(template.ParseFiles(baseTemplatePath))
+	for _, path := range paths {
+		name := filepath.Base(path)
+		t := template.Must(baseTemplate.Clone())
+		t = template.Must(t.ParseFiles(baseTemplatePath, path))
+		renderer.templates[name] = t
+	}
+	return &renderer, nil
+}
+
 func NewApp(db *DB) *App {
+	renderer, err := NewRenderer("templates/base.html", "templates/*.html")
+	if err != nil {
+		log.Fatalf("error from NewRenderer: %s", err)
+	}
 	return &App{
-		templates: template.Must(template.ParseGlob("templates/*")),
-		db:        db,
-		bufpool:   bpool.NewBufferPool(48),
+		// TODO: how do I make base templates work...?!
+		renderer: renderer,
+		db:       db,
+		bufpool:  bpool.NewBufferPool(48),
 	}
 }
 
@@ -240,10 +282,12 @@ func errorResponse(w http.ResponseWriter, err error) {
 
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 	// We render to a buffer (from the buffer pool) so that we can handle template
-	// execution errors (without sending half a template response first).
+	// execution errors (without sending half a template response first). This sounds
+	// reasonable to me, but I get the sense that we have all cargo culted this solution
+	// from various blog posts.
 	buf := app.bufpool.Get()
 	defer app.bufpool.Put(buf)
-	err := app.templates.ExecuteTemplate(buf, name, data)
+	err := app.renderer.ExecuteTemplate(buf, name, data)
 	if err != nil {
 		errorResponse(w, err)
 		return

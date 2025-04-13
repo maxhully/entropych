@@ -1,9 +1,4 @@
-<style>
-    html {
-        font-family: monospace;
-    }
-</style>
-
+{{define "main"}}
 <p>
     <a href="/"><- back home</a>
 </p>
@@ -15,3 +10,4 @@
     <li>{{.UserName}} on {{.CreatedAt.Format "Jan 02 2006"}}: {{.Content}}</li>
     {{end}}
 </ul>
+{{end}}
