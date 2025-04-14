@@ -50,6 +50,8 @@ func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 }
 
 type User struct {
+	// I use int64s because that's what SQLite returns under the hood. But it would be
+	// fine to use plain int, surely
 	UserID int64
 	Name   string
 }

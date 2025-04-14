@@ -7,6 +7,7 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/james-bowman/sparse"
 	"github.com/maxhully/entropy"
 )
 
@@ -71,6 +72,32 @@ func depthFirstSearch(graph *followerGraph, start int64) {
 	}
 }
 
+func sparseMatrixPowers(graph *followerGraph, maxDepth int) {
+	var csr *sparse.CSR
+	var result *sparse.CSR
+	{
+		dok := sparse.NewDOK(27, 27)
+		for k, ns := range graph.neighbors {
+			for _, n := range ns {
+				dok.Set(int(k)-1, int(n)-1, 1.0)
+			}
+		}
+		csr = dok.ToCSR()
+		result = sparse.NewDOK(27, 27).ToCSR()
+	}
+
+	for depth := 1; depth <= maxDepth; depth++ {
+		result.Mul(csr, csr)
+		result.DoNonZero(func(i, j int, v float64) {
+			// TODO: keep track of seen items
+			if i > j {
+				return
+			}
+			fmt.Printf("d=%d|i=%d, j=%d\n", depth, i, j)
+		})
+	}
+}
+
 func main() {
 	dbpool, err := sqlitex.Open("test.db", 0, 10)
 	if err != nil {
@@ -91,4 +118,6 @@ func main() {
 
 	// fmt.Printf("graph: %v\n", graph)
 	depthFirstSearch(graph, 18)
+
+	sparseMatrixPowers(graph, 6)
 }
