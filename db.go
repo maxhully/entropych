@@ -151,13 +151,11 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 		where user_id in (select user_id from other_users)
 	`
 	otherUserIDsJSON, err := json.Marshal(otherUserIDs)
-	fmt.Printf("otherUserIDsJSON: %v\n", string(otherUserIDsJSON))
 	if err != nil {
 		return nil, err
 	}
 	result := make(map[int64]int)
 	collect := func(stmt *sqlite.Stmt) error {
-		fmt.Printf("stmt: %v\n", stmt)
 		u := stmt.ColumnInt64(0)
 		if _, in := result[u]; in {
 			return fmt.Errorf("user ID %d returned more than once", u)
@@ -360,12 +358,23 @@ func GetUserFollowStats(conn *sqlite.Conn, userID int64) (*UserFollowStats, erro
 			from user_follow
 			where followed_user_id = ?
 			group by followed_user_id
+		),
+		both as (
+			select
+				following_count,
+				follower_count
+			from follows
+			left join followers using (user_id)
+			union /* hack to do a full outer join */
+			select
+				following_count,
+				follower_count
+			from followers
+			left join follows using (user_id)
 		)
-		select
-			following_count,
-			follower_count
-		from follows
-		join followers using (user_id)
+		select *
+		from both
+		limit 1
 		`
 	stats := &UserFollowStats{UserID: userID}
 	collect := func(stmt *sqlite.Stmt) error {
