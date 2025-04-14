@@ -97,7 +97,6 @@ func getDistortedPostsForUser(conn *sqlite.Conn, user *entropy.User, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("distances: %v\n", distances)
 	for i := range posts {
 		// No distortion for your own posts
 		if posts[i].UserID == user.UserID {
@@ -107,7 +106,6 @@ func getDistortedPostsForUser(conn *sqlite.Conn, user *entropy.User, limit int) 
 		if !ok {
 			dist = entropy.MaxDistortionLevel
 		}
-		fmt.Printf("distortion level %d for %v\n", dist, posts[i].Content)
 		posts[i].Content = entropy.DistortContent(posts[i].Content, dist)
 	}
 	return posts, err

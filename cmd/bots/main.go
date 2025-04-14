@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -38,7 +39,7 @@ type dialogueLine struct {
 //
 // Returns two channels---one for the parsed lines, one for the errors.
 func streamDialogueLines(reader io.Reader) (<-chan dialogueLine, <-chan error) {
-	lines := make(chan dialogueLine, 12)
+	lines := make(chan dialogueLine, 128)
 	errChan := make(chan error, 1)
 	go func() {
 		defer close(lines)
@@ -86,8 +87,6 @@ func streamDialogueLines(reader io.Reader) (<-chan dialogueLine, <-chan error) {
 	return lines, errChan
 }
 
-const csvURL = "https://raw.githubusercontent.com/nrennie/shakespeare/refs/heads/main/data/twelfth_night.csv"
-
 func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
 	user, err := entropy.GetUserByName(conn, name)
 	if err != nil {
@@ -103,10 +102,28 @@ func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
 	return user, err
 }
 
+const csvURLPrefix = "https://raw.githubusercontent.com/nrennie/shakespeare/refs/heads/main/data/"
+
 func main() {
+	var shouldPost bool
+	var playCSVName string
+
+	flag.BoolVar(&shouldPost, "posts", false, "Create Posts using the dialogue lines (not idempotent!)")
+	flag.StringVar(&playCSVName, "play", "", "Filename of the CSV in the nrennie/shakespeare repo (e.g. 'twelfth_night.csv')")
+
+	flag.Parse()
+
+	if playCSVName == "" {
+		log.Fatalf("--play is required")
+	}
+	csvURL := csvURLPrefix + playCSVName
+
 	resp, err := http.Get(csvURL)
 	if err != nil {
 		log.Fatalf("GET %s failed: %v", csvURL, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("GET %s returned %s", csvURL, resp.Status)
 	}
 	defer resp.Body.Close()
 	lines, errChan := streamDialogueLines(resp.Body)
@@ -146,7 +163,9 @@ func main() {
 		}
 		charactersInScene[user.UserID] = true
 
-		// entropy.CreatePost(conn, user.UserID, line.dialogue)
+		if shouldPost {
+			entropy.CreatePost(conn, user.UserID, line.dialogue)
+		}
 
 		// Have both users follow each other
 		for otherUserID := range charactersInScene {
