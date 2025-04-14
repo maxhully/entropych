@@ -2,11 +2,12 @@
 <h1>entropy.social</h1>
 
 {{if .User}}
-<p>Hello, {{.User.Name}}!</p>
+<p>Hello, {{.User.Name}}!
 <form method="post" action="/logout">
     {{.CSRFField}}
     <button>Log out</button>
 </form>
+</p>
 {{else}}
 <p>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></p>
 {{end}}
@@ -15,7 +16,7 @@
 <form method="post" action="/posts/new">
     {{.CSRFField}}
     <div><label for="content">shout into the void</label></div>
-    <div><textarea id="content" name="content"></textarea></div>
+    <div><textarea id="content" name="content" rows="3" cols="60"></textarea></div>
     <div><button>Post!</button></div>
 </form>
 {{end}}
