@@ -73,17 +73,22 @@ func depthFirstSearch(graph *followerGraph, start int64) {
 }
 
 func sparseMatrixPowers(graph *followerGraph, maxDepth int) {
+	// TODO: actually compute the number of nodes. This can just be len(graph.neighbors)
+	// if I change followerGraph to have nodes {0, ... N-1} instead of having the actual
+	// user IDs
+	N := 27
+
 	var csr *sparse.CSR
 	var result *sparse.CSR
 	{
-		dok := sparse.NewDOK(27, 27)
+		dok := sparse.NewDOK(N, N)
 		for k, ns := range graph.neighbors {
 			for _, n := range ns {
 				dok.Set(int(k)-1, int(n)-1, 1.0)
 			}
 		}
 		csr = dok.ToCSR()
-		result = sparse.NewDOK(27, 27).ToCSR()
+		result = sparse.NewDOK(N, N).ToCSR()
 	}
 
 	for depth := 1; depth <= maxDepth; depth++ {
@@ -95,6 +100,10 @@ func sparseMatrixPowers(graph *followerGraph, maxDepth int) {
 			}
 			fmt.Printf("d=%d|i=%d, j=%d\n", depth, i, j)
 		})
+		// this won't happen because I've deleted a user from the user table
+		if result.NNZ() == N*N {
+			fmt.Println("matrix is already saturated! done!")
+		}
 	}
 }
 
