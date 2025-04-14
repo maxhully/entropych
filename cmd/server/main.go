@@ -129,6 +129,10 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	app.RenderTemplate(w, "index.html", homepage{User: user, Posts: posts, CSRFField: csrf.TemplateField(r)})
 }
 
+func (app *App) About(w http.ResponseWriter, r *http.Request) {
+	app.RenderTemplate(w, "about.html", nil)
+}
+
 type userPostsPage struct {
 	LoggedInUser           *entropy.User
 	PostingUser            *entropy.User
@@ -523,7 +527,8 @@ func main() {
 	// TODO: Maybe I should wrap these handlers somehow so that they can just return an
 	// error, instead of calling errorResponse for every possible 500
 
-	mux.HandleFunc("/{$}", app.Homepage)
+	mux.HandleFunc("GET /{$}", app.Homepage)
+	mux.HandleFunc("GET /about", app.About)
 
 	mux.HandleFunc("GET /signup", app.SignUpUser)
 	mux.HandleFunc("POST /signup", app.SignUpUser)
