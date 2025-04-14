@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -70,6 +71,7 @@ func userURL(userName string) string {
 
 type Post struct {
 	PostID    int64
+	UserID    int64
 	UserName  string
 	CreatedAt time.Time
 	Content   string
@@ -85,16 +87,95 @@ type UserSession struct {
 	ExpirationTime  time.Time
 }
 
-const defaultSessionDuration time.Duration = time.Minute * 30
+const defaultSessionDuration time.Duration = time.Hour * 48
 
 func utcNow() time.Time {
 	return time.Now().UTC()
 }
 
+func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) (map[int64]int, error) {
+	// This could **almost** be a recursive CTE, but since our graph has cycles we need
+	// to exclude everything from the previous iteration with a `not in ( ... )` clause
+	// over the current set of rows (and that's not allowed).
+	//
+	// I still feel like there must be a better way to do this.
+	//
+	// Could also add some limit clauses if heavily-followed users become an issue
+	query := `
+		with follows as (
+			select followed_user_id as user_id, 1 as distance
+			from user_follow
+			where user_id = ?
+		),
+		follows2 as (
+			select distinct user_follow.followed_user_id as user_id, 2 as distance
+			from follows
+			join user_follow using (user_id)
+			where
+				user_follow.followed_user_id not in (select user_id from follows)
+				and user_follow.followed_user_id != ?
+		),
+		follows3 as (
+			select distinct user_follow.followed_user_id as user_id, 3 as distance
+			from follows2
+			join user_follow using (user_id)
+			where
+				user_follow.followed_user_id not in (select user_id from follows)
+				and user_follow.followed_user_id not in (select user_id from follows2)
+				and user_follow.followed_user_id != ?
+		),
+		follows4 as (
+			select distinct user_follow.followed_user_id as user_id, 4 as distance
+			from follows3
+			join user_follow using (user_id)
+			where
+				user_follow.followed_user_id not in (select user_id from follows)
+				and user_follow.followed_user_id not in (select user_id from follows2)
+				and user_follow.followed_user_id not in (select user_id from follows3)
+				and user_follow.followed_user_id != ?
+		),
+		other_users as (
+			/* dumb hack to pass an array through. */
+			select value as user_id from json_each(?)
+		)
+		select * from follows
+		where user_id in (select user_id from other_users)
+		union all
+		select * from follows2
+		where user_id in (select user_id from other_users)
+		union all
+		select * from follows3
+		where user_id in (select user_id from other_users)
+		union all
+		select * from follows4
+		where user_id in (select user_id from other_users)
+	`
+	otherUserIDsJSON, err := json.Marshal(otherUserIDs)
+	fmt.Printf("otherUserIDsJSON: %v\n", string(otherUserIDsJSON))
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[int64]int)
+	collect := func(stmt *sqlite.Stmt) error {
+		fmt.Printf("stmt: %v\n", stmt)
+		u := stmt.ColumnInt64(0)
+		if _, in := result[u]; in {
+			return fmt.Errorf("user ID %d returned more than once", u)
+		}
+		result[u] = stmt.ColumnInt(1)
+		return nil
+	}
+	err = sqlitex.Exec(conn, query, collect, userID, userID, userID, userID, string(otherUserIDsJSON))
+	if err != nil {
+		return nil, err
+	}
+	return result, err
+}
+
 func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
-		select post_id, user.name, created_at, content
+		select post_id, user.user_id, user.name, created_at, content
 		from post
 		join user using (user_id)
 		order by created_at desc
@@ -102,9 +183,10 @@ func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
 	collect := func(stmt *sqlite.Stmt) error {
 		post := Post{
 			PostID:    stmt.ColumnInt64(0),
-			UserName:  stmt.ColumnText(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
-			Content:   stmt.ColumnText(3),
+			UserID:    stmt.ColumnInt64(1),
+			UserName:  stmt.ColumnText(2),
+			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0),
+			Content:   stmt.ColumnText(4),
 		}
 		posts = append(posts, post)
 		return nil

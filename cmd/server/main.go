@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -22,6 +23,14 @@ import (
 type App struct {
 	renderer *entropy.Renderer
 	db       *entropy.DB
+}
+
+func timer(name string) func() {
+	start := time.Now()
+	return func() {
+		duration := time.Since(start)
+		log.Printf("%s took %s", name, duration)
+	}
 }
 
 func NewApp(db *entropy.DB) *App {
@@ -57,6 +66,53 @@ type homepage struct {
 	CSRFField template.HTML
 }
 
+func getDistortedPostsForUser(conn *sqlite.Conn, user *entropy.User, limit int) ([]entropy.Post, error) {
+	// TODO: make this more random. A mix between strangers and people you follow.
+	posts, err := entropy.GetRecentPosts(conn, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if user == nil {
+		// TODO: decide what the default distortion level should be for unauthenticated.
+		// Maybe just maximum? (5)
+		for i := range posts {
+			posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
+		}
+		return posts, nil
+	}
+
+	// Distort the posts based on how close the users are to us in the follower graph
+	userIDSet := make(map[int64]bool)
+	for i := range posts {
+		if posts[i].UserID != user.UserID {
+			userIDSet[posts[i].UserID] = true
+		}
+	}
+	otherUserIDs := make([]int64, 0, len(userIDSet))
+	for k := range userIDSet {
+		otherUserIDs = append(otherUserIDs, k)
+	}
+	distances, err := entropy.GetDistanceFromUser(conn, user.UserID, otherUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("distances: %v\n", distances)
+	for i := range posts {
+		// No distortion for your own posts
+		if posts[i].UserID == user.UserID {
+			continue
+		}
+		dist, ok := distances[posts[i].UserID]
+		if !ok {
+			dist = entropy.MaxDistortionLevel
+		}
+		fmt.Printf("distortion level %d for %v\n", dist, posts[i].Content)
+		posts[i].Content = entropy.DistortContent(posts[i].Content, dist)
+	}
+	return posts, err
+}
+
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -66,10 +122,7 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	posts, err := entropy.GetRecentPosts(conn, 50)
-	for i := range posts {
-		posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
-	}
+	posts, err := getDistortedPostsForUser(conn, user, 50)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -401,6 +454,7 @@ func (app *App) FollowUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	t := timer("startup")
 	// Might want this to be in a secret file instead
 	secretKeyFlag := flag.String("secret-key", "", "Secret key for signed cookies (hex encoded)")
 	flag.Parse()
@@ -445,6 +499,7 @@ func main() {
 	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
+	t()
 
 	http.ListenAndServe(":7777", csrfProtect(mux))
 }

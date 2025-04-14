@@ -14,7 +14,7 @@ func randomContentRune() rune {
 	return rune(minRune + i)
 }
 
-const maxGraphDistance = 6.0
+const MaxDistortionLevel = 5
 
 func DistortContent(content string, graphDistance int) string {
 	if graphDistance == 0 {
@@ -23,8 +23,11 @@ func DistortContent(content string, graphDistance int) string {
 	var builder strings.Builder
 	builder.Grow(len(content))
 
-	// graphDistance is between 1 and 6, say.
-	p := min(float32(graphDistance)/maxGraphDistance, 1.0)
+	// TODO: I think I need to make this subtler
+	p := min(float32(graphDistance-1)/float32(MaxDistortionLevel+1), 1.0)
+	if p == 0.0 {
+		p = 0.05
+	}
 
 	// TODO: wrap the errors in <mark> tags in a different style
 	for _, r := range content {
