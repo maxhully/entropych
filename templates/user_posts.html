@@ -13,7 +13,13 @@
 {{if eq .LoggedInUser.UserID .PostingUser.UserID }}
 <p>(This is you)</p>
 {{else if .IsFollowingPostingUser}}
-<p>Following!</p>
+<p>
+    Following!
+<form method="post" action="{{.PostingUser.URL}}unfollow">
+    {{.CSRFField}}
+    <button>Unfollow</button>
+</form>
+</p>
 {{else}}
 <form method="post" action="{{.PostingUser.URL}}follow">
     {{.CSRFField}}

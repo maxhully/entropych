@@ -205,6 +205,7 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 	collect := func(stmt *sqlite.Stmt) error {
 		post := Post{
 			PostID:    stmt.ColumnInt64(0),
+			UserID:    userID,
 			UserName:  stmt.ColumnText(1),
 			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
 			Content:   stmt.ColumnText(3),
@@ -324,6 +325,11 @@ func FollowUser(conn *sqlite.Conn, userID int64, followedUserID int64) error {
 		values (?, ?, ?)
 		on conflict do nothing`
 	return sqlitex.Exec(conn, query, nil, userID, followedUserID, utcNow().Unix())
+}
+
+func UnfollowUser(conn *sqlite.Conn, userID int64, followedUserID int64) error {
+	query := "delete from user_follow where user_id = ? and followed_user_id = ?"
+	return sqlitex.Exec(conn, query, nil, userID, followedUserID)
 }
 
 func IsFollowing(conn *sqlite.Conn, userID int64, followedUserID int64) (bool, error) {
