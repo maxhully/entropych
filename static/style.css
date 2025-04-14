@@ -1,0 +1,38 @@
+html {
+    font-family: monospace;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+* {
+    box-sizing: inherit;
+}
+
+body {
+    margin: 0 auto;
+    max-width: 60rem;
+    padding: 0 0.5rem;
+}
+
+textarea {
+    max-width: 100%;
+}
+
+.posts {
+    list-style: none;
+    padding: 0;
+}
+
+.post {
+    margin: 1rem 0;
+    border: 2px solid black;
+    padding: 0.5rem;
+}
+
+.post__header {
+    margin-bottom: 0.5rem;
+}
+
+.post__content {
+    font-size: 1rem;
+}
