@@ -24,12 +24,15 @@
 <ul class="posts">
     {{range .Posts}}
     <li class="post">
-        <div class="post__header">
-            <a href="{{.UserURL}}">{{.UserName}}</a>
-            <time>{{.CreatedAt.Format "Jan 02 2006"}}</time>
-        </div>
-        <div class="post__content">
-            {{.Content}}
+        <img class="post__avatar" src="/static/Prospero_and_miranda.jpg">
+        <div>
+            <div class="post__header">
+                <a href="{{.UserURL}}">{{.UserName}}</a>
+                <time>{{.CreatedAt.Format "Jan 02 2006"}}</time>
+            </div>
+            <div class="post__content">
+                {{.Content}}
+            </div>
         </div>
     </li>
     {{end}}
