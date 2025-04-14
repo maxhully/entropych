@@ -26,7 +26,7 @@ func DistortContent(content string, graphDistance int) string {
 	// TODO: I think I need to make this subtler
 	p := min(float32(graphDistance-1)/float32(MaxDistortionLevel+1), 1.0)
 	if p == 0.0 {
-		p = 0.05
+		p = 0.02
 	}
 
 	// TODO: wrap the errors in <mark> tags in a different style

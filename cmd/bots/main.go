@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -38,9 +40,10 @@ type dialogueLine struct {
 // Reads and parses CSV lines of Shakespeare dialogue.
 //
 // Returns two channels---one for the parsed lines, one for the errors.
-func streamDialogueLines(reader io.Reader) (<-chan dialogueLine, <-chan error) {
+func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <-chan error) {
 	lines := make(chan dialogueLine, 128)
 	errChan := make(chan error, 1)
+	foundStartLine := false
 	go func() {
 		defer close(lines)
 		defer close(errChan)
@@ -72,7 +75,13 @@ func streamDialogueLines(reader io.Reader) (<-chan dialogueLine, <-chan error) {
 					return
 				}
 			}
-
+			if !foundStartLine {
+				if lineNum >= fromLine {
+					foundStartLine = true
+				} else {
+					continue
+				}
+			}
 			line := dialogueLine{
 				act:       rawLine[0],
 				scene:     rawLine[1],
@@ -107,9 +116,11 @@ const csvURLPrefix = "https://raw.githubusercontent.com/nrennie/shakespeare/refs
 func main() {
 	var shouldPost bool
 	var playCSVName string
+	var fromLine int
 
 	flag.BoolVar(&shouldPost, "posts", false, "Create Posts using the dialogue lines (not idempotent!)")
 	flag.StringVar(&playCSVName, "play", "", "Filename of the CSV in the nrennie/shakespeare repo (e.g. 'twelfth_night.csv')")
+	flag.IntVar(&fromLine, "from-line", 0, "Start processing lines this line_number")
 
 	flag.Parse()
 
@@ -126,7 +137,7 @@ func main() {
 		log.Fatalf("GET %s returned %s", csvURL, resp.Status)
 	}
 	defer resp.Body.Close()
-	lines, errChan := streamDialogueLines(resp.Body)
+	lines, errChan := streamDialogueLines(resp.Body, fromLine)
 
 	dbpool, err := sqlitex.Open("test.db", 0, 10)
 	if err != nil {
@@ -148,6 +159,9 @@ func main() {
 	// channels to get all the lines we parsed and all the errors (one or zero) that we
 	// hit.
 	for line := range lines {
+		// Random pause between 5 and 30 seconds
+		time.Sleep(time.Second * time.Duration(5+25*rand.Float64()))
+
 		fmt.Printf("line: %v\n", line)
 
 		scene := []string{line.act, line.scene}
