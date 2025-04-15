@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -48,6 +49,38 @@ func NewApp(db *entropy.DB) *App {
 func errorResponse(w http.ResponseWriter, err error) {
 	log.Printf("sending 500 error: %s", err)
 	http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+}
+
+type userCtxKeyType struct{}
+
+var userCtxKey = userCtxKeyType{}
+
+// Adds the requesting user (if they're logged in) to the request context
+func (app *App) withUserContextMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn := app.db.Get(r.Context())
+		user, err := entropy.GetUserIfLoggedIn(conn, r)
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
+		defer app.db.Put(conn)
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, userCtxKey, user)
+		r = r.WithContext(ctx)
+		h.ServeHTTP(w, r)
+	})
+}
+
+// Get the requesting user (stashed on the Context by withUserContextMiddleware)
+func getCurrentUser(ctx context.Context) *entropy.User {
+	user, ok := ctx.Value(userCtxKey).(*entropy.User)
+	// Being verbose to acknowledge that this wil be nil, and that's OK, if the user
+	// isn't logged in
+	if !ok {
+		return nil
+	}
+	return user
 }
 
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
@@ -110,11 +143,7 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user, err := entropy.GetUserIfLoggedIn(conn, r)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
+	user := getCurrentUser(r.Context())
 	// TODO: make this more random. A mix of strangers and people you follow.
 	posts, err := entropy.GetRecentPosts(conn, 50)
 	if err != nil {
@@ -139,6 +168,7 @@ type userPostsPage struct {
 	Posts                  []entropy.Post
 	IsFollowingPostingUser bool
 	PostingUserFollowStats *entropy.UserFollowStats
+	DistanceFromUser       int
 	CSRFField              template.HTML
 }
 
@@ -156,12 +186,8 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user, err := entropy.GetUserIfLoggedIn(conn, r)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
 	isFollowing := false
+	user := getCurrentUser(r.Context())
 	if user != nil && postingUser.UserID != user.UserID {
 		// TODO: I could consolidate these queries
 		isFollowing, err = entropy.IsFollowing(conn, user.UserID, postingUser.UserID)
@@ -170,13 +196,18 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
 	err = distortPostsForUser(conn, user, posts)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	// Maybe just debug info
+	distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -192,6 +223,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		Posts:                  posts,
 		IsFollowingPostingUser: isFollowing,
 		PostingUserFollowStats: stats,
+		DistanceFromUser:       distances[postingUser.UserID],
 		CSRFField:              csrf.TemplateField(r),
 	}
 	app.RenderTemplate(w, "user_posts.html", page)
@@ -400,22 +432,18 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user, err := entropy.GetUserIfLoggedIn(conn, r)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
+	user := getCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
 	}
-	if err = r.ParseForm(); err != nil {
+	if err := r.ParseForm(); err != nil {
 		badRequest(w)
 		return
 	}
 	content := r.PostForm.Get("content")
 	// should empty posts be allowed?
-	_, err = entropy.CreatePost(conn, user.UserID, content)
+	_, err := entropy.CreatePost(conn, user.UserID, content)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -427,11 +455,7 @@ func (app *App) FollowUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user, err := entropy.GetUserIfLoggedIn(conn, r)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
+	user := getCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -462,11 +486,7 @@ func (app *App) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user, err := entropy.GetUserIfLoggedIn(conn, r)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
+	user := getCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -543,7 +563,8 @@ func main() {
 	mux.HandleFunc("POST /u/{username}/unfollow", app.UnfollowUser)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
+	server := csrfProtect(app.withUserContextMiddleware(mux))
 	t()
 
-	http.ListenAndServe(":7777", csrfProtect(mux))
+	http.ListenAndServe(":7777", server)
 }

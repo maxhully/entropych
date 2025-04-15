@@ -16,7 +16,7 @@
 <form method="post" action="/posts/new">
     {{.CSRFField}}
     <div><label for="content">shout into the void</label></div>
-    <div><textarea id="content" name="content" rows="3" cols="60"></textarea></div>
+    <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
     <div><button>Post!</button></div>
 </form>
 {{end}}
@@ -28,7 +28,7 @@
         <div>
             <div class="post__header">
                 <a href="{{.UserURL}}">{{.UserName}}</a>
-                <time>{{.CreatedAt.Format "Jan 02 2006"}}</time>
+                <time class="post__time">{{.CreatedAt.Format "Jan 02 2006"}}</time>
             </div>
             <div class="post__content">
                 {{.Content}}
