@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -94,9 +95,10 @@ func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
 }
 
 type homepage struct {
-	User      *entropy.User
-	Posts     []entropy.Post
-	CSRFField template.HTML
+	User        *entropy.User
+	Posts       []entropy.Post
+	NextPageURL string
+	CSRFField   template.HTML
 }
 
 // Maybe also return the distances, so that the caller can use that info?
@@ -139,13 +141,27 @@ func distortPostsForUser(conn *sqlite.Conn, user *entropy.User, posts []entropy.
 	return nil
 }
 
+const timeQueryParamLayout = "20060102T150405"
+
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
+	before := time.Now().UTC()
+	beforeRaw := r.URL.Query().Get("before")
+	var err error
+	if beforeRaw != "" {
+		// Just ignore errors here
+		before, err = time.Parse(timeQueryParamLayout, beforeRaw)
+		fmt.Printf("before: %v\n", before)
+		if err != nil {
+			before = time.Now().UTC()
+		}
+	}
+
 	user := getCurrentUser(r.Context())
 	// TODO: make this more random. A mix of strangers and people you follow.
-	posts, err := entropy.GetRecentPosts(conn, 50)
+	posts, err := entropy.GetRecentPosts(conn, before, 50)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -155,7 +171,16 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	app.RenderTemplate(w, "index.html", homepage{User: user, Posts: posts, CSRFField: csrf.TemplateField(r)})
+	page := &homepage{
+		User:      user,
+		Posts:     posts,
+		CSRFField: csrf.TemplateField(r),
+	}
+	if len(posts) > 0 {
+		lastPostCreatedAt := posts[len(posts)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
+		page.NextPageURL = fmt.Sprintf("/?before=%s", url.QueryEscape(lastPostCreatedAt))
+	}
+	app.RenderTemplate(w, "index.html", page)
 }
 
 func (app *App) About(w http.ResponseWriter, r *http.Request) {

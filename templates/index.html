@@ -36,5 +36,8 @@
         </div>
     </li>
     {{end}}
+    {{if .NextPageURL}}
+    <a href="{{.NextPageURL}}">More</a>
+    {{end}}
 </ul>
 {{end}}

@@ -170,12 +170,13 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 	return result, err
 }
 
-func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
+func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
 		select post_id, user.user_id, user.name, created_at, content
 		from post
 		join user using (user_id)
+		where post.created_at < ?
 		order by created_at desc
 		limit ?`
 	collect := func(stmt *sqlite.Stmt) error {
@@ -183,13 +184,13 @@ func GetRecentPosts(conn *sqlite.Conn, limit int) ([]Post, error) {
 			PostID:    stmt.ColumnInt64(0),
 			UserID:    stmt.ColumnInt64(1),
 			UserName:  stmt.ColumnText(2),
-			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0),
+			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0).UTC(),
 			Content:   stmt.ColumnText(4),
 		}
 		posts = append(posts, post)
 		return nil
 	}
-	err := sqlitex.Exec(conn, query, collect, limit)
+	err := sqlitex.Exec(conn, query, collect, before.UTC().Unix(), limit)
 	return posts, err
 }
 
@@ -207,7 +208,7 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 			PostID:    stmt.ColumnInt64(0),
 			UserID:    userID,
 			UserName:  stmt.ColumnText(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0).UTC(),
 			Content:   stmt.ColumnText(3),
 		}
 		posts = append(posts, post)
@@ -250,7 +251,7 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (*Post, error) 
 		post = &Post{
 			PostID:    stmt.ColumnInt64(0),
 			UserName:  stmt.ColumnText(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0),
+			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0).UTC(),
 			Content:   stmt.ColumnText(3),
 		}
 		return nil
