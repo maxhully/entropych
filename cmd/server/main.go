@@ -107,7 +107,7 @@ func distortPostsForUser(conn *sqlite.Conn, user *entropy.User, posts []entropy.
 		// TODO: decide what the default distortion level should be for unauthenticated.
 		// Maybe just maximum? (5)
 		for i := range posts {
-			posts[i].Content = entropy.DistortContent(posts[i].Content, 1)
+			posts[i].Content = entropy.DistortContent(posts[i].Content, entropy.MaxDistortionLevel)
 		}
 		return nil
 	}
@@ -132,11 +132,7 @@ func distortPostsForUser(conn *sqlite.Conn, user *entropy.User, posts []entropy.
 		if posts[i].UserID == user.UserID {
 			continue
 		}
-		dist, ok := distances[posts[i].UserID]
-		if !ok {
-			dist = entropy.MaxDistortionLevel
-		}
-		posts[i].Content = entropy.DistortContent(posts[i].Content, dist)
+		posts[i].Content = entropy.DistortContent(posts[i].Content, distances[posts[i].UserID])
 	}
 	return nil
 }
@@ -153,7 +149,6 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	if beforeRaw != "" {
 		// Just ignore errors here
 		before, err = time.Parse(timeQueryParamLayout, beforeRaw)
-		fmt.Printf("before: %v\n", before)
 		if err != nil {
 			before = time.Now().UTC()
 		}
@@ -212,6 +207,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isFollowing := false
+	distanceFromUser := 0
 	user := getCurrentUser(r.Context())
 	if user != nil && postingUser.UserID != user.UserID {
 		// TODO: I could consolidate these queries
@@ -220,6 +216,13 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 			errorResponse(w, err)
 			return
 		}
+		// Maybe just debug info
+		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
+		distanceFromUser = distances[postingUser.UserID]
 	}
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
 	if err != nil {
@@ -227,12 +230,6 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = distortPostsForUser(conn, user, posts)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	// Maybe just debug info
-	distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -248,7 +245,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		Posts:                  posts,
 		IsFollowingPostingUser: isFollowing,
 		PostingUserFollowStats: stats,
-		DistanceFromUser:       distances[postingUser.UserID],
+		DistanceFromUser:       distanceFromUser,
 		CSRFField:              csrf.TemplateField(r),
 	}
 	app.RenderTemplate(w, "user_posts.html", page)

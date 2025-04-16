@@ -10,6 +10,18 @@ func randomContentRune() rune {
 	// This is the "Basic Latin" range of code points
 	minRune := 0x0020
 	maxRune := 0x007F
+
+	// The "fun zone" of unicode:
+	//
+	// 2580 — 259F	Block Elements
+	// 25A0 — 25FF	Geometric Shapes
+	// 2600 — 26FF	Miscellaneous Symbols
+	// 2700 — 27BF	Dingbats
+	if mathrand.Float32() < 0.3 {
+		minRune = 0x2580
+		maxRune = 0x27BF
+	}
+
 	i := mathrand.Intn(maxRune - minRune)
 	return rune(minRune + i)
 }
@@ -24,9 +36,9 @@ func DistortContent(content string, graphDistance int) string {
 	builder.Grow(len(content))
 
 	// TODO: I think I need to make this subtler
-	p := min(float32(graphDistance-1)/float32(MaxDistortionLevel+1), 1.0)
+	p := min(float32(graphDistance-1)/float32(MaxDistortionLevel+2), 1.0)
 	if p == 0.0 {
-		p = 0.02
+		p = 0.01
 	}
 
 	// TODO: wrap the errors in <mark> tags in a different style

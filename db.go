@@ -167,6 +167,12 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 	if err != nil {
 		return nil, err
 	}
+	for _, otherUserID := range otherUserIDs {
+		_, ok := result[otherUserID]
+		if !ok {
+			result[otherUserID] = MaxDistortionLevel
+		}
+	}
 	return result, err
 }
 
