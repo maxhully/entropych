@@ -2,6 +2,7 @@ package entropy
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -38,6 +39,7 @@ func (r *Renderer) ExecuteTemplate(w io.Writer, name string, data any) error {
 const baseTemplatePath = "templates/base.html"
 
 //go:embed templates/*.html
+//go:embed templates/components/*.html
 var templateFS embed.FS
 
 func NewRenderer() (*Renderer, error) {
@@ -50,9 +52,18 @@ func NewRenderer() (*Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
+	componentPaths, err := fs.Glob(templateFS, "templates/components/*.html")
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("componentPaths: %v\n", componentPaths)
 	// An awful lot of template.Must going on here...
 	// That's probably fine. Crashing on startup is kinda what we want anyway.
-	baseTemplate := template.Must(template.ParseFS(templateFS, baseTemplatePath))
+	//
+	// We include the helpers in templates/components/ too, so that everything defined
+	// there is usable in the child templates.
+	baseTemplate := template.Must(template.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
+	fmt.Printf("baseTemplate.DefinedTemplates(): %v\n", baseTemplate.DefinedTemplates())
 	for _, path := range paths {
 		name := filepath.Base(path)
 		t := template.Must(baseTemplate.Clone())

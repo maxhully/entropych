@@ -11,7 +11,7 @@
 </p>
 
 {{if .LoggedInUser }}
-{{if eq .LoggedInUser.UserID .PostingUser.UserID }}
+{{if eq .LoggedInUser.UserID .PostingUser.UserID}}
 <p>(This is you)</p>
 {{else if .IsFollowingPostingUser}}
 <p>
@@ -31,9 +31,9 @@
 <p>Log in to follow</p>
 {{end}}
 
-<ul>
+<ul class="posts">
     {{range .Posts}}
-    <li>{{.UserName}} on {{.CreatedAt.Format "Jan 02 2006"}}: {{.Content}}</li>
+    {{template "post" .}}
     {{end}}
 </ul>
 {{end}}

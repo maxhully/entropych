@@ -139,18 +139,23 @@ func distortPostsForUser(conn *sqlite.Conn, user *entropy.User, posts []entropy.
 
 const timeQueryParamLayout = "20060102T150405"
 
+// A time in the future, so that we don't filter on time at all
+func defaultBefore() time.Time {
+	return time.Now().UTC().Add(time.Hour)
+}
+
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	before := time.Now().UTC()
+	before := defaultBefore()
 	beforeRaw := r.URL.Query().Get("before")
 	var err error
 	if beforeRaw != "" {
 		// Just ignore errors here
 		before, err = time.Parse(timeQueryParamLayout, beforeRaw)
 		if err != nil {
-			before = time.Now().UTC()
+			before = defaultBefore()
 		}
 	}
 

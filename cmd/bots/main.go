@@ -160,7 +160,7 @@ func main() {
 	// hit.
 	for line := range lines {
 		// Random pause between 5 and 30 seconds
-		time.Sleep(time.Second * time.Duration(5+25*rand.Float64()))
+		time.Sleep(time.Second * time.Duration(5+25*rand.Float32()))
 
 		fmt.Printf("line: %v\n", line)
 
