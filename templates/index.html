@@ -21,7 +21,7 @@
 </form>
 {{end}}
 
-<ul class="posts">
+<ul class="posts" id="posts">
     {{range .Posts}}
     <li class="post">
         <img class="post__avatar" src="/static/Prospero_and_miranda.jpg">
@@ -37,7 +37,9 @@
     </li>
     {{end}}
     {{if .NextPageURL}}
-    <a href="{{.NextPageURL}}">More</a>
+    <h-infinite-scroll data-controls="posts">
+        <a href="{{.NextPageURL}}" data-rel="next">More</a>
+    </h-infinite-scroll>
     {{end}}
 </ul>
 {{end}}
