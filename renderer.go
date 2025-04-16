@@ -2,10 +2,9 @@ package entropy
 
 import (
 	"embed"
-	"fmt"
 	"html/template"
-	"io"
 	"io/fs"
+	"net/http"
 	"path/filepath"
 
 	"github.com/oxtoacart/bpool"
@@ -22,7 +21,7 @@ type Renderer struct {
 	bufpool          *bpool.BufferPool
 }
 
-func (r *Renderer) ExecuteTemplate(w io.Writer, name string, data any) error {
+func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, name string, data any) error {
 	// We render to a buffer (from the buffer pool) so that we can handle template
 	// execution errors (without sending half a template response first).
 	t := r.templates[name]
@@ -32,6 +31,7 @@ func (r *Renderer) ExecuteTemplate(w io.Writer, name string, data any) error {
 	if err != nil {
 		return err
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	buf.WriteTo(w)
 	return nil
 }
@@ -52,18 +52,12 @@ func NewRenderer() (*Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
-	componentPaths, err := fs.Glob(templateFS, "templates/components/*.html")
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("componentPaths: %v\n", componentPaths)
 	// An awful lot of template.Must going on here...
 	// That's probably fine. Crashing on startup is kinda what we want anyway.
 	//
 	// We include the helpers in templates/components/ too, so that everything defined
 	// there is usable in the child templates.
 	baseTemplate := template.Must(template.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
-	fmt.Printf("baseTemplate.DefinedTemplates(): %v\n", baseTemplate.DefinedTemplates())
 	for _, path := range paths {
 		name := filepath.Base(path)
 		t := template.Must(baseTemplate.Clone())
