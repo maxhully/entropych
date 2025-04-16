@@ -177,7 +177,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 }
 
 func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
-	var posts []Post
+	posts := make([]Post, 0, limit)
 	query := `
 		select post_id, user.user_id, user.name, created_at, content
 		from post

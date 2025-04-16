@@ -36,7 +36,7 @@ func DistortContent(content string, graphDistance int) string {
 	builder.Grow(len(content))
 
 	// TODO: I think I need to make this subtler
-	p := min(float32(graphDistance-1)/float32(MaxDistortionLevel+2), 1.0)
+	p := min(float32(graphDistance-1)/float32(2*MaxDistortionLevel), 1.0)
 	if p == 0.0 {
 		p = 0.01
 	}
