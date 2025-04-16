@@ -10,8 +10,10 @@ import (
 	"html/template"
 	"io"
 	"log"
+	mathrand "math/rand"
 	"net/http"
 	"net/url"
+	"sort"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -85,9 +87,6 @@ func getCurrentUser(ctx context.Context) *entropy.User {
 }
 
 func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
-	// TODO: once I have html error pages, I could set this:
-	// w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// (right now we might send plain text if there's an error)
 	err := app.renderer.ExecuteTemplate(w, name, data)
 	if err != nil {
 		errorResponse(w, err)
@@ -161,7 +160,48 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 
 	user := getCurrentUser(r.Context())
 	// TODO: make this more random. A mix of strangers and people you follow.
-	posts, err := entropy.GetRecentPosts(conn, before, 50)
+	// posts, err := entropy.GetRecentPosts(conn, before, 50)
+	var posts []entropy.Post
+	if user != nil {
+		// Maybe do both queries, and then randomize between the two?
+		// posts, err = entropy.GetRecentPosts(conn, before, 50)
+		followedPosts, err := entropy.GetRecentPostsFromFollowedUsers(conn, user.UserID, before, 50)
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
+		chaosPosts, err := entropy.GetRecentPosts(conn, before, 50)
+		if err != nil {
+			errorResponse(w, err)
+			return
+		}
+		posts = make([]entropy.Post, 0, 50)
+		for range 50 {
+			if len(followedPosts) == 0 && len(chaosPosts) == 0 {
+				break
+			}
+			var takeFollow bool
+			if len(followedPosts) == 0 {
+				takeFollow = false
+			} else if len(chaosPosts) == 0 {
+				takeFollow = true
+			} else {
+				takeFollow = mathrand.Float32() > 0.4
+			}
+			if takeFollow {
+				posts = append(posts, followedPosts[0])
+				followedPosts = followedPosts[1:]
+			} else {
+				posts = append(posts, chaosPosts[0])
+				chaosPosts = chaosPosts[1:]
+			}
+		}
+		sort.Slice(posts, func(i, j int) bool {
+			return posts[i].CreatedAt.After(posts[j].CreatedAt)
+		})
+	} else {
+		posts, err = entropy.GetRecentPosts(conn, before, 50)
+	}
 	if err != nil {
 		errorResponse(w, err)
 		return
