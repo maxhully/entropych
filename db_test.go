@@ -99,3 +99,50 @@ func TestFollowerStats(t *testing.T) {
 		t.Fatalf("followerStats.FollowerCount: %v, expected 0\n", followerStats.FollowerCount)
 	}
 }
+
+func TestGetDistanceFromUser(t *testing.T) {
+	db := setUpTestDB(t)
+	defer db.Close()
+
+	conn := db.Get(context.TODO())
+	defer db.Put(conn)
+
+	maxUser, err := CreateUser(conn, "Max", "maxpass")
+	if err != nil {
+		t.Fatalf("could not create user Max: %v", err)
+	}
+	lunaUser, err := CreateUser(conn, "Luna", "lunapass")
+	if err != nil {
+		t.Fatalf("could not create user Luna: %v", err)
+	}
+	err = FollowUser(conn, maxUser.UserID, lunaUser.UserID)
+	if err != nil {
+		t.Fatalf("could not follow user: %v", err)
+	}
+	birdUser, err := CreateUser(conn, "Bird", "birdpass")
+	if err != nil {
+		t.Fatalf("could not create user Bird: %v", err)
+	}
+	err = FollowUser(conn, lunaUser.UserID, birdUser.UserID)
+	if err != nil {
+		t.Fatalf("could not follow user: %v", err)
+	}
+	strangerUser, err := CreateUser(conn, "Stranger", "strangerpass")
+	if err != nil {
+		t.Fatalf("could not create user Stranger: %v", err)
+	}
+
+	dists, err := GetDistanceFromUser(conn, maxUser.UserID, []int64{lunaUser.UserID, birdUser.UserID, strangerUser.UserID})
+	if err != nil {
+		t.Fatalf("could not get distances: %v", err)
+	}
+	if dists[lunaUser.UserID] != 1 {
+		t.Errorf("expected dists[%v]=%v to be 1", lunaUser.UserID, dists[lunaUser.UserID])
+	}
+	if dists[birdUser.UserID] != 2 {
+		t.Errorf("expected dists[%v]=%v to be 2", birdUser.UserID, dists[birdUser.UserID])
+	}
+	if dists[strangerUser.UserID] != MaxDistortionLevel {
+		t.Errorf("expected dists[%v]=%v to be %d", strangerUser.UserID, dists[strangerUser.UserID], MaxDistortionLevel)
+	}
+}

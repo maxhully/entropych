@@ -35,6 +35,44 @@ func setUpDb(conn *sqlite.Conn) error {
 	return sqlitex.ExecScript(conn, schemaSQL)
 }
 
+// Like sqlitex.Exec but you pass a function that binds the parameters of the function, instead of
+func exec(conn *sqlite.Conn, query string, resultFn func(stmt *sqlite.Stmt) error, bindFn func(stmt *sqlite.Stmt) error) error {
+	stmt, err := conn.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	if err = bindFn(stmt); err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	for {
+		hasRow, err := stmt.Step()
+		if err != nil {
+			return fmt.Errorf("exec: %w", err)
+		}
+		if !hasRow {
+			break
+		}
+		if resultFn != nil {
+			if err := resultFn(stmt); err != nil {
+				if err, isError := err.(sqlite.Error); isError {
+					if err.Loc == "" {
+						err.Loc = "Exec"
+					} else {
+						err.Loc = "Exec: " + err.Loc
+					}
+				}
+				// don't modify non-Error errors from resultFn.
+				return err
+			}
+		}
+	}
+	resetErr := stmt.Reset()
+	if err == nil {
+		err = resetErr
+	}
+	return err
+}
+
 func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 	conn := dbpool.Get(context.TODO())
 	if conn == nil {
@@ -105,7 +143,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 		with follows as (
 			select followed_user_id as user_id, 1 as distance
 			from user_follow
-			where user_id = ?
+			where user_id = :userID
 		),
 		follows2 as (
 			select distinct user_follow.followed_user_id as user_id, 2 as distance
@@ -113,7 +151,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 			join user_follow using (user_id)
 			where
 				user_follow.followed_user_id not in (select user_id from follows)
-				and user_follow.followed_user_id != ?
+				and user_follow.followed_user_id != :userID
 		),
 		follows3 as (
 			select distinct user_follow.followed_user_id as user_id, 3 as distance
@@ -122,7 +160,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 			where
 				user_follow.followed_user_id not in (select user_id from follows)
 				and user_follow.followed_user_id not in (select user_id from follows2)
-				and user_follow.followed_user_id != ?
+				and user_follow.followed_user_id != :userID
 		),
 		follows4 as (
 			select distinct user_follow.followed_user_id as user_id, 4 as distance
@@ -132,11 +170,11 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 				user_follow.followed_user_id not in (select user_id from follows)
 				and user_follow.followed_user_id not in (select user_id from follows2)
 				and user_follow.followed_user_id not in (select user_id from follows3)
-				and user_follow.followed_user_id != ?
+				and user_follow.followed_user_id != :userID
 		),
 		other_users as (
 			/* dumb hack to pass an array through. */
-			select value as user_id from json_each(?)
+			select value as user_id from json_each(:otherUserIDsJSON)
 		)
 		select * from follows
 		where user_id in (select user_id from other_users)
@@ -163,7 +201,11 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 		result[u] = stmt.ColumnInt(1)
 		return nil
 	}
-	err = sqlitex.Exec(conn, query, collect, userID, userID, userID, userID, string(otherUserIDsJSON))
+	err = exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetInt64(":userID", userID)
+		stmt.SetText(":otherUserIDsJSON", string(otherUserIDsJSON))
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +239,59 @@ func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, err
 		return nil
 	}
 	err := sqlitex.Exec(conn, query, collect, before.UTC().Unix(), limit)
+	return posts, err
+}
+
+func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before time.Time, limit int) ([]Post, error) {
+	posts := make([]Post, 0, limit)
+	query := `
+		with followed_users as (
+			select followed_user_id
+			from user_follow
+			where user_id = :userID
+		),
+		followed_posts as (
+			select
+				post_id, created_at
+			from post
+			join followed_users on post.user_id = followed_users.followed_user_id
+			where created_at < :before
+			order by created_at desc
+			limit :limit
+		),
+		chaos_posts as (
+			select
+				post_id, created_at
+			from post
+			where user_id not in (select followed_user_id from followed_users)
+				and created_at < :before
+			order by created_at desc
+			limit :limit
+		)
+		/* TODO: finish this... */
+		select post_id, user.user_id, user.name, created_at, content
+		from post
+		join user using (user_id)
+		order by created_at desc
+		limit :limit
+		`
+	collect := func(stmt *sqlite.Stmt) error {
+		post := Post{
+			PostID:    stmt.ColumnInt64(0),
+			UserID:    stmt.ColumnInt64(1),
+			UserName:  stmt.ColumnText(2),
+			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0).UTC(),
+			Content:   stmt.ColumnText(4),
+		}
+		posts = append(posts, post)
+		return nil
+	}
+	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetInt64(":userID", userID)
+		stmt.SetInt64(":before", before.UTC().Unix())
+		stmt.SetInt64(":limit", int64(limit))
+		return nil
+	})
 	return posts, err
 }
 
