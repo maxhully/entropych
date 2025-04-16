@@ -14,6 +14,9 @@ import (
 	"crawshaw.io/sqlite/sqlitex"
 )
 
+// I wonder if I should have a "Must"-style helper for these SQLite query functions that
+// I really truly never expect to error. Might simplify some server code.
+
 // The SQL schema for the app's database
 //
 //go:embed schema.sql
@@ -492,4 +495,40 @@ func GetUserFollowStats(conn *sqlite.Conn, userID int64) (*UserFollowStats, erro
 	}
 	err := sqlitex.Exec(conn, query, collect, userID, userID)
 	return stats, err
+}
+
+// Maybe take the distances as an argument, instead of looking them up here
+func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
+	if user == nil {
+		// TODO: decide what the default distortion level should be for unauthenticated.
+		// Maybe just maximum? (5)
+		for i := range posts {
+			posts[i].Content = DistortContent(posts[i].Content, MaxDistortionLevel)
+		}
+		return nil
+	}
+
+	// Distort the posts based on how close the users are to us in the follower graph
+	userIDSet := make(map[int64]bool)
+	for i := range posts {
+		if posts[i].UserID != user.UserID {
+			userIDSet[posts[i].UserID] = true
+		}
+	}
+	otherUserIDs := make([]int64, 0, len(userIDSet))
+	for k := range userIDSet {
+		otherUserIDs = append(otherUserIDs, k)
+	}
+	distances, err := GetDistanceFromUser(conn, user.UserID, otherUserIDs)
+	if err != nil {
+		return err
+	}
+	for i := range posts {
+		// No distortion for your own posts
+		if posts[i].UserID == user.UserID {
+			continue
+		}
+		posts[i].Content = DistortContent(posts[i].Content, distances[posts[i].UserID])
+	}
+	return nil
 }

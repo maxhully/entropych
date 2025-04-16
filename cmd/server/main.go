@@ -49,6 +49,11 @@ func NewApp(db *entropy.DB) *App {
 	}
 }
 
+// It occurs to me that if I had this do nothing when err == nil, then I could do
+// ```
+// defer errorResponse(w, &err)
+// ```
+// to return 500 on any errors. But that feels like a real invitation to confusion.
 func errorResponse(w http.ResponseWriter, err error) {
 	log.Printf("sending 500 error: %s", err)
 	http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
@@ -100,42 +105,6 @@ type homepage struct {
 	CSRFField   template.HTML
 }
 
-// Maybe also return the distances, so that the caller can use that info?
-func distortPostsForUser(conn *sqlite.Conn, user *entropy.User, posts []entropy.Post) error {
-	if user == nil {
-		// TODO: decide what the default distortion level should be for unauthenticated.
-		// Maybe just maximum? (5)
-		for i := range posts {
-			posts[i].Content = entropy.DistortContent(posts[i].Content, entropy.MaxDistortionLevel)
-		}
-		return nil
-	}
-
-	// Distort the posts based on how close the users are to us in the follower graph
-	userIDSet := make(map[int64]bool)
-	for i := range posts {
-		if posts[i].UserID != user.UserID {
-			userIDSet[posts[i].UserID] = true
-		}
-	}
-	otherUserIDs := make([]int64, 0, len(userIDSet))
-	for k := range userIDSet {
-		otherUserIDs = append(otherUserIDs, k)
-	}
-	distances, err := entropy.GetDistanceFromUser(conn, user.UserID, otherUserIDs)
-	if err != nil {
-		return err
-	}
-	for i := range posts {
-		// No distortion for your own posts
-		if posts[i].UserID == user.UserID {
-			continue
-		}
-		posts[i].Content = entropy.DistortContent(posts[i].Content, distances[posts[i].UserID])
-	}
-	return nil
-}
-
 const timeQueryParamLayout = "20060102T150405"
 
 // A time in the future, so that we don't filter on time at all
@@ -143,10 +112,54 @@ func defaultBefore() time.Time {
 	return time.Now().UTC().Add(time.Hour)
 }
 
+// Get recommended posts, based on the ENTROPYCH, INC. CHAOS RECOMMENDATION ALGORITHM
+func getRecommendedPosts(conn *sqlite.Conn, user *entropy.User, before time.Time, limit int) ([]entropy.Post, error) {
+	if user == nil {
+		return entropy.GetRecentPosts(conn, before, limit)
+	}
+	var posts []entropy.Post
+	followedPosts, err := entropy.GetRecentPostsFromFollowedUsers(conn, user.UserID, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	chaosPosts, err := entropy.GetRecentPosts(conn, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	posts = make([]entropy.Post, 0, limit)
+	for range limit {
+		if len(followedPosts) == 0 && len(chaosPosts) == 0 {
+			break
+		}
+		var takeFollow bool
+		if len(followedPosts) == 0 {
+			takeFollow = false
+		} else if len(chaosPosts) == 0 {
+			takeFollow = true
+		} else {
+			takeFollow = mathrand.Float32() > 0.4
+		}
+		if takeFollow {
+			posts = append(posts, followedPosts[0])
+			followedPosts = followedPosts[1:]
+		} else {
+			posts = append(posts, chaosPosts[0])
+			chaosPosts = chaosPosts[1:]
+		}
+	}
+	sort.Slice(posts, func(i, j int) bool {
+		return posts[i].CreatedAt.After(posts[j].CreatedAt)
+	})
+	err = entropy.DistortPostsForUser(conn, user, posts)
+	if err != nil {
+		return nil, err
+	}
+	return posts, err
+}
+
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
-
 	before := defaultBefore()
 	beforeRaw := r.URL.Query().Get("before")
 	var err error
@@ -157,56 +170,8 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 			before = defaultBefore()
 		}
 	}
-
 	user := getCurrentUser(r.Context())
-	// TODO: make this more random. A mix of strangers and people you follow.
-	// posts, err := entropy.GetRecentPosts(conn, before, 50)
-	var posts []entropy.Post
-	if user != nil {
-		// Maybe do both queries, and then randomize between the two?
-		// posts, err = entropy.GetRecentPosts(conn, before, 50)
-		followedPosts, err := entropy.GetRecentPostsFromFollowedUsers(conn, user.UserID, before, 50)
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		chaosPosts, err := entropy.GetRecentPosts(conn, before, 50)
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		posts = make([]entropy.Post, 0, 50)
-		for range 50 {
-			if len(followedPosts) == 0 && len(chaosPosts) == 0 {
-				break
-			}
-			var takeFollow bool
-			if len(followedPosts) == 0 {
-				takeFollow = false
-			} else if len(chaosPosts) == 0 {
-				takeFollow = true
-			} else {
-				takeFollow = mathrand.Float32() > 0.4
-			}
-			if takeFollow {
-				posts = append(posts, followedPosts[0])
-				followedPosts = followedPosts[1:]
-			} else {
-				posts = append(posts, chaosPosts[0])
-				chaosPosts = chaosPosts[1:]
-			}
-		}
-		sort.Slice(posts, func(i, j int) bool {
-			return posts[i].CreatedAt.After(posts[j].CreatedAt)
-		})
-	} else {
-		posts, err = entropy.GetRecentPosts(conn, before, 50)
-	}
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	err = distortPostsForUser(conn, user, posts)
+	posts, err := getRecommendedPosts(conn, user, before, 50)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -237,6 +202,45 @@ type userPostsPage struct {
 	CSRFField              template.HTML
 }
 
+func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entropy.User) (*userPostsPage, error) {
+	isFollowing := false
+	distanceFromUser := 0
+	var err error
+	if user != nil && postingUser.UserID != user.UserID {
+		// TODO: I could consolidate these queries
+		isFollowing, err = entropy.IsFollowing(conn, user.UserID, postingUser.UserID)
+		if err != nil {
+			return nil, err
+		}
+		// Maybe just debug info
+		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
+		if err != nil {
+			return nil, err
+		}
+		distanceFromUser = distances[postingUser.UserID]
+	}
+	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
+	if err != nil {
+		return nil, err
+	}
+	err = entropy.DistortPostsForUser(conn, user, posts)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return &userPostsPage{
+		LoggedInUser:           user,
+		PostingUser:            postingUser,
+		Posts:                  posts,
+		IsFollowingPostingUser: isFollowing,
+		PostingUserFollowStats: stats,
+		DistanceFromUser:       distanceFromUser,
+	}, nil
+}
+
 func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -251,48 +255,13 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	isFollowing := false
-	distanceFromUser := 0
 	user := getCurrentUser(r.Context())
-	if user != nil && postingUser.UserID != user.UserID {
-		// TODO: I could consolidate these queries
-		isFollowing, err = entropy.IsFollowing(conn, user.UserID, postingUser.UserID)
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		// Maybe just debug info
-		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		distanceFromUser = distances[postingUser.UserID]
-	}
-	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
+	page, err := getUserPostsPage(conn, user, postingUser)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
-	err = distortPostsForUser(conn, user, posts)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
-	if err != nil {
-		errorResponse(w, err)
-		return
-	}
-	page := &userPostsPage{
-		LoggedInUser:           user,
-		PostingUser:            postingUser,
-		Posts:                  posts,
-		IsFollowingPostingUser: isFollowing,
-		PostingUserFollowStats: stats,
-		DistanceFromUser:       distanceFromUser,
-		CSRFField:              csrf.TemplateField(r),
-	}
+	page.CSRFField = csrf.TemplateField(r)
 	app.RenderTemplate(w, "user_posts.html", page)
 }
 
@@ -315,7 +284,7 @@ func (f *nameAndPasswordForm) ParseFromBody(r *http.Request) error {
 	return nil
 }
 
-func (f *nameAndPasswordForm) PushError(fieldName string, errorMessage string) {
+func (f *nameAndPasswordForm) pushError(fieldName string, errorMessage string) {
 	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
 }
 
@@ -335,23 +304,23 @@ func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
 	const maxLength = 256
 
 	if len(f.Name) == 0 {
-		f.PushError("name", "Name is required")
+		f.pushError("name", "Name is required")
 	} else if len(f.Name) > maxLength {
-		f.PushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
+		f.pushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
 	} else {
 		existingUserWithName, err := entropy.GetUserByName(conn, f.Name)
 		if err != nil {
 			return err
 		}
 		if existingUserWithName != nil {
-			f.PushError("name", "A user with this name already exists")
+			f.pushError("name", "A user with this name already exists")
 		}
 	}
 
 	if len(f.Password) == 0 {
-		f.PushError("password", "Password is required")
+		f.pushError("password", "Password is required")
 	} else if len(f.Password) > maxLength {
-		f.PushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
+		f.pushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
 	}
 	return nil
 }
@@ -429,11 +398,11 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 		// security reasons. But this is a social networking site where the existence of
 		// a user with a given username is public knowledge. (Also, even on a private
 		// site, the registration form will often give away this info anyways.)
-		form.PushError("name", "There is no user with this name")
+		form.pushError("name", "There is no user with this name")
 		return nil, nil
 	}
 	if !entropy.CheckPassword([]byte(form.Password), hashAndSalt) {
-		form.PushError("password", "This password is incorrect")
+		form.pushError("password", "This password is incorrect")
 		return nil, nil
 	}
 	// The user can log in!
