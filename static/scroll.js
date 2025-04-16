@@ -1,13 +1,13 @@
 const banner = `\
     ===================================================================
 ===========================================================================
-======= THIS BROWSER TAB IS NOW UNDER THE CONTROL OF ENTROPIC, INC. =======
+======= THIS BROWSER TAB IS NOW UNDER THE CONTROL OF ENTROPYCH, INC =======
 ===========================================================================
     ===================================================================
 `;
 console.log(banner);
 
-// <h-infinite-scroll>: ENTROPIC, Inc.'s
+// <h-infinite-scroll>: ENTROPYCH, INC's
 //
 // Fetches the next page of items in a paginated list and adds them to the list in the
 // current document.

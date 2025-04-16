@@ -48,7 +48,7 @@ button {
 .post__avatar {
     /* border-radius: 50%; */
     /* I used https://bennettfeely.com/clippy/ */
-    clip-path: polygon(
+    /* clip-path: polygon(
         25% 0%,
         75% 0%,
         100% 25%,
@@ -57,7 +57,8 @@ button {
         25% 100%,
         0% 75%,
         0% 25%
-    );
+    ); */
+    border-radius: 4px;
     height: 2.5rem;
     width: 2.5rem;
     margin-right: 0.5rem;
