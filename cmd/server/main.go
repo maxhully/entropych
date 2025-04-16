@@ -67,12 +67,12 @@ var userCtxKey = userCtxKeyType{}
 func (app *App) withUserContextMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn := app.db.Get(r.Context())
+		defer app.db.Put(conn)
 		user, err := entropy.GetUserIfLoggedIn(conn, r)
 		if err != nil {
 			errorResponse(w, err)
 			return
 		}
-		defer app.db.Put(conn)
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, userCtxKey, user)
 		r = r.WithContext(ctx)
@@ -582,7 +582,6 @@ func main() {
 
 	// TODO: Maybe I should wrap these handlers somehow so that they can just return an
 	// error, instead of calling errorResponse for every possible 500
-
 	mux.HandleFunc("GET /{$}", app.Homepage)
 	mux.HandleFunc("GET /about", app.About)
 
