@@ -17,7 +17,7 @@ func SaveSessionInCookie(w http.ResponseWriter, session *UserSession) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, &cookie)
 }
