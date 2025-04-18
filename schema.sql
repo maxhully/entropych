@@ -2,11 +2,13 @@
 
 create table if not exists user (
     user_id integer primary key not null,
-    name text not null,
+    user_name text not null,
     password_hash blob,
-    password_salt blob
+    password_salt blob,
+    display_name text,
+    bio text
 );
-create unique index if not exists user_name_uniq_idx on user (name);
+create unique index if not exists user_user_name_uniq_idx on user (user_name);
 
 create table if not exists post (
     post_id integer primary key not null,
@@ -15,6 +17,15 @@ create table if not exists post (
     content text not null
 );
 create index if not exists post_user_id_idx on post (user_id);
+/*
+create index if not exists post_created_at_idx on post (created_at);
+
+create table if not exists post_reply (
+    post_id integer references post(post_id),
+    reply_post_id integer references post(post_id),
+    primary key (post_id, reply_post_id)
+);
+*/
 
 create table if not exists user_session (
     user_session_id integer primary key not null,

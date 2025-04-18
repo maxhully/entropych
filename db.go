@@ -224,7 +224,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
 	posts := make([]Post, 0, limit)
 	query := `
-		select post_id, user.user_id, user.name, created_at, content
+		select post_id, user.user_id, user.user_name, created_at, content
 		from post
 		join user using (user_id)
 		where post.created_at < ?
@@ -272,7 +272,7 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 			limit :limit
 		)
 		/* TODO: finish this... */
-		select post_id, user.user_id, user.name, created_at, content
+		select post_id, user.user_id, user.user_name, created_at, content
 		from post
 		join user using (user_id)
 		order by created_at desc
@@ -301,7 +301,7 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
-		select post_id, user.name, created_at, content
+		select post_id, user.user_name, created_at, content
 		from post
 		join user using (user_id)
 		where user_id = ?
@@ -324,7 +324,7 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
-	query := "select user_id, name from user where name = ? limit 1"
+	query := "select user_id, user_name from user where user_name = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
 		user = &User{
 			UserID: stmt.ColumnInt64(0),
@@ -346,7 +346,7 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (*Post, error) 
 
 	var post *Post
 	query = `
-		select post_id, user.name, created_at, content
+		select post_id, user.user_name, created_at, content
 		from post
 		join user using (user_id)
 		where post_id = ?`
@@ -370,7 +370,7 @@ func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) 
 		return nil, err
 	}
 
-	query := "insert into user (name, password_salt, password_hash) values (?, ?, ?)"
+	query := "insert into user (user_name, password_salt, password_hash) values (?, ?, ?)"
 	err = sqlitex.Exec(conn, query, nil, name, hashAndSalt.Salt, hashAndSalt.Hash)
 	if err != nil {
 		return nil, err
@@ -405,7 +405,7 @@ func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
 
 func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*User, error) {
 	query := `
-		select user_id, user.name
+		select user_id, user.user_name
 		from user_session
 		join user using (user_id)
 		where session_public_id = ? and expiration_time > ?`

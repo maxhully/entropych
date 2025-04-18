@@ -375,7 +375,8 @@ type LogInForm struct {
 func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 	var hashAndSalt entropy.HashAndSalt
 	var user *entropy.User
-	query := "select user_id, name, password_salt, password_hash from user where name = ? limit 1"
+	// TODO: move to db.go?
+	query := "select user_id, user_name, password_salt, password_hash from user where user_name = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
 		var err error
 		user = &entropy.User{
