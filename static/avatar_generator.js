@@ -1,68 +1,132 @@
 // Maybe I should make a go implementation with this library:
 // https://github.com/tdewolff/canvas
 
+function randomEllipseSector(rxMin, rxMax, ryMin, ryMax) {
+    // Ellipse types
+    const CIRCLE = 0;
+    const SMILE = 1;
+    const FROWN = 2;
+
+    const rx = rxMin + Math.random() * (rxMax - rxMin);
+    const ry = ryMin + Math.random() * (ryMax - ryMin);
+
+    let rotationEnd;
+    let ccw = false;
+    const mouthType = Math.floor(Math.random() * 3);
+    if (mouthType == CIRCLE) {
+        rotationEnd = Math.PI * 2;
+    } else if (mouthType == SMILE) {
+        rotationEnd = Math.PI;
+    } else if (mouthType == FROWN) {
+        rotationEnd = Math.PI;
+        ccw = true;
+    }
+    const rotationStart = -Math.PI / 2 + Math.PI * Math.random();
+    return {
+        rx,
+        ry,
+        rotationStart,
+        rotationEnd,
+        ccw,
+    };
+}
+
+function randomColor() {
+    const h = Math.round(Math.random() * 360);
+    const s = Math.round(Math.random() * 20) + 80;
+    const l = Math.round(Math.random() * 70) + 20;
+    return { h, s, l };
+}
+
+function colorToString({ h, s, l }) {
+    console.log({ h, s, l });
+    return `hsl(${h}, ${s}%, ${l}%)`;
+}
+
 /**
  * Generates a random avatar on the given canvas.
  *
  * @param {HTMLCanvasElement} canvas
  */
 function drawAvatar(canvas) {
-    console.log(canvas);
     const ctx = canvas.getContext("2d");
     ctx.reset();
 
-    const hue = Math.round(Math.random() * 360);
-    const lightness = Math.round(Math.random() * 30) + 50;
-    const saturation = Math.round(Math.random() * 50) + 50;
-    const bgColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    const bgColor = randomColor();
+    const fgColor = { h: (bgColor.h + 180) % 360, s: 95, l: bgColor.l };
+    fgColor.l = Math.round(100 * Math.pow(fgColor.l / 100, 3));
+    bgColor.l = Math.round(100 * Math.pow(bgColor.l / 100, 1 / 3));
 
-    // const mouthHue = (hue + 180) % 360;
-    // const mouthHue = (hue + 120 + Math.round(Math.random() * 60)) % 360;
-    // const mouthLightness = 100 - lightness;
-    // const mouthColor = `hsl(${mouthHue}, ${saturation}%, ${mouthLightness}%)`;
+    // All of these measurements are relative to the canvas width/height.
+    const eye = randomEllipseSector(0.025, 0.2, 0.025, 0.15);
+    eye.rotationStart = 0;
+    const eyeSeparation = eye.rx + (1.0 - eye.rx) * Math.random();
+    // I could tweak the eyeX / mouthX so that the face always looks like it's facing to
+    // the right
+    // TODO: I want the eye/mouth X and Y to stay somewhat central
+    const eyeX = Math.random() * (1.0 - eyeSeparation);
+    const eyeY = Math.random() * 0.8;
+
+    const mouth = randomEllipseSector(0.025, 0.6, 0.025, 0.4);
+    // TODO: This doesn't account for the mouth/eye possibly being a half-moon
+    const ySpace = eyeY + eye.ry + mouth.ry;
+    const mouthY = ySpace + Math.random() * (1.0 - ySpace);
+    const mouthX = Math.random();
 
     const w = canvas.width;
     const h = canvas.height;
-    const paddingX = 0.05 * w;
-    const paddingY = 0.05 * h;
-
-    // all relative to canvas width/height (in [0,1])
-    const eyeY = Math.random() * 0.75;
-    const eyeSeparation = 0.1 + Math.random() * 0.65;
-    const eyeX = (Math.random() * (1.0 - eyeSeparation)) / 2;
-    const eyeR = 5 + Math.random() * 15;
-    // The 0.05 is some padding to make sure the mouth and eyes aren't in the same line
-    const mouthY = eyeY + 0.05 + Math.random() * (0.9 - eyeY);
-    // Maybe keep it within [0.1, 0.9]?
-    const mouthX = Math.random();
-    const mouthR = 5 + Math.random() * 45;
-
     function x(xCoord01) {
-        return paddingX + (w - 2 * paddingX) * xCoord01;
+        return w * xCoord01;
     }
     function y(yCoord01) {
-        return paddingY + (h - 2 * paddingY) * yCoord01;
+        return h * yCoord01;
     }
 
-    ctx.fillStyle = bgColor;
+    ctx.fillStyle = colorToString(bgColor);
     ctx.fillRect(0, 0, w, h);
-    // ctx.moveTo(eyeX);
 
     // Eyes
-    ctx.fillStyle = "black";
+    ctx.fillStyle = colorToString(fgColor);
     ctx.beginPath();
-    ctx.arc(x(eyeX), y(eyeY), eyeR, 0, 2 * Math.PI);
+    ctx.ellipse(
+        x(eyeX),
+        y(eyeY),
+        x(eye.rx),
+        y(eye.ry),
+        0,
+        0,
+        eye.rotationEnd,
+        eye.ccw
+    );
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x(eyeX + eyeSeparation), y(eyeY), eyeR, 0, 2 * Math.PI);
+    ctx.ellipse(
+        x(eyeX + eyeSeparation),
+        y(eyeY),
+        x(eye.rx),
+        y(eye.ry),
+        0,
+        0,
+        eye.rotationEnd,
+        eye.ccw
+    );
     ctx.fill();
 
     // Ideas:
     // - Make the mouth a different color
     // - Different shapes (ellipse, rotation, ... a blobby path?)
-    ctx.fillStyle = "black";
+    ctx.fillStyle = colorToString(fgColor);
     ctx.beginPath();
-    ctx.arc(x(mouthX), y(mouthY), mouthR, 0, 2 * Math.PI);
+    ctx.ellipse(
+        x(mouthX),
+        y(mouthY),
+        w * mouth.rx,
+        h * mouth.ry,
+        0, // I think rotating this would be good
+        mouth.rotationStart,
+        mouth.rotationEnd,
+        mouth.ccw
+    );
     ctx.fill();
 }
 

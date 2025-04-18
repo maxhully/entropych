@@ -1,12 +1,11 @@
-// bots: posts to entropy.social using bot accounts (writing directly to the SQLite
+// bots: posts to entropych.social using bot accounts (writing directly to the SQLite
 // database).
 //
 // Each bot user is a character from a shakespeare play. The characters post their lines
 // from the play. If two characters share the stage, they follow each other on the site.
 //
 // I'm using this repo as the source of the data, since they (very nicely!) have all the
-// plays in CSV form:
-// https://github.com/nrennie/shakespeare
+// plays in CSV form: https://github.com/nrennie/shakespeare
 
 package main
 
@@ -82,6 +81,7 @@ func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <
 					continue
 				}
 			}
+			// TODO: concatenate sequential lines by the same character?
 			line := dialogueLine{
 				act:       rawLine[0],
 				scene:     rawLine[1],
