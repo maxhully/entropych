@@ -628,7 +628,7 @@ func SaveUpload(conn *sqlite.Conn, filename string, contentType string, contents
 	return conn.LastInsertRowID(), err
 }
 
-func OpenUploadContents(conn *sqlite.Conn, uploadID int64) (blob io.Reader, contentType string, err error) {
+func OpenUploadContents(conn *sqlite.Conn, uploadID int64) (blob io.ReadCloser, contentType string, err error) {
 	query := "select content_type from upload where upload_id = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
 		contentType = stmt.ColumnText(0)

@@ -633,7 +633,9 @@ func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
+	defer blob.Close()
 	w.Header().Set("Content-Type", contentType)
+	// TODO: should probably buffer this and handle errors?
 	io.Copy(w, blob)
 }
 
