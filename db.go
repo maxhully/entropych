@@ -94,8 +94,11 @@ func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
 type User struct {
 	// I use int64s because that's what SQLite returns under the hood. But it would be
 	// fine to use plain int, surely
-	UserID int64
-	Name   string
+	UserID      int64
+	Name        string
+	DisplayName string
+	// We don't always need the Bio. Should I take it out of the User struct?
+	Bio string
 }
 
 func (u *User) Exists() bool {
@@ -111,11 +114,12 @@ func userURL(userName string) string {
 }
 
 type Post struct {
-	PostID    int64
-	UserID    int64
-	UserName  string
-	CreatedAt time.Time
-	Content   string
+	PostID          int64
+	UserID          int64
+	UserName        string
+	UserDisplayName string
+	CreatedAt       time.Time
+	Content         string
 }
 
 func (p *Post) UserURL() string {
@@ -224,7 +228,7 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
 	posts := make([]Post, 0, limit)
 	query := `
-		select post_id, user.user_id, user.user_name, created_at, content
+		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
 		from post
 		join user using (user_id)
 		where post.created_at < ?
@@ -232,11 +236,12 @@ func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, err
 		limit ?`
 	collect := func(stmt *sqlite.Stmt) error {
 		post := Post{
-			PostID:    stmt.ColumnInt64(0),
-			UserID:    stmt.ColumnInt64(1),
-			UserName:  stmt.ColumnText(2),
-			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0).UTC(),
-			Content:   stmt.ColumnText(4),
+			PostID:          stmt.ColumnInt64(0),
+			UserID:          stmt.ColumnInt64(1),
+			UserName:        stmt.ColumnText(2),
+			UserDisplayName: stmt.ColumnText(3),
+			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
+			Content:         stmt.ColumnText(5),
 		}
 		posts = append(posts, post)
 		return nil
@@ -252,40 +257,27 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 			select followed_user_id
 			from user_follow
 			where user_id = :userID
-		),
-		followed_posts as (
-			select
-				post_id, created_at
-			from post
-			join followed_users on post.user_id = followed_users.followed_user_id
-			where created_at < :before
-			order by created_at desc
-			limit :limit
-		),
-		chaos_posts as (
-			select
-				post_id, created_at
-			from post
-			where user_id not in (select followed_user_id from followed_users)
-				and created_at < :before
-			order by created_at desc
-			limit :limit
 		)
-		/* TODO: finish this... */
-		select post_id, user.user_id, user.user_name, created_at, content
+		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
 		from post
 		join user using (user_id)
+		where (
+			user.user_id in (select followed_user_id from followed_users)
+			or user.user_id = :userID
+		) and post.created_at < :before
 		order by created_at desc
 		limit :limit
 		`
 	collect := func(stmt *sqlite.Stmt) error {
 		post := Post{
-			PostID:    stmt.ColumnInt64(0),
-			UserID:    stmt.ColumnInt64(1),
-			UserName:  stmt.ColumnText(2),
-			CreatedAt: time.Unix(stmt.ColumnInt64(3), 0).UTC(),
-			Content:   stmt.ColumnText(4),
+			PostID:          stmt.ColumnInt64(0),
+			UserID:          stmt.ColumnInt64(1),
+			UserName:        stmt.ColumnText(2),
+			UserDisplayName: stmt.ColumnText(3),
+			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
+			Content:         stmt.ColumnText(5),
 		}
+		fmt.Printf("followed post: %v\n", post)
 		posts = append(posts, post)
 		return nil
 	}
@@ -298,10 +290,50 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 	return posts, err
 }
 
+// Get recent posts from users that userID does not follow
+func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time, limit int) ([]Post, error) {
+	posts := make([]Post, 0, limit)
+	query := `
+		with followed_users as (
+			select followed_user_id
+			from user_follow
+			where user_id = :userID
+		)
+		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
+		from post
+		join user using (user_id)
+		where post.created_at < :before
+			and user.user_id not in (select followed_user_id from followed_users)
+			and user.user_id != :userID
+		order by created_at desc
+		limit :limit`
+	collect := func(stmt *sqlite.Stmt) error {
+		post := Post{
+			PostID:          stmt.ColumnInt64(0),
+			UserID:          stmt.ColumnInt64(1),
+			UserName:        stmt.ColumnText(2),
+			UserDisplayName: stmt.ColumnText(3),
+			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
+			Content:         stmt.ColumnText(5),
+		}
+		fmt.Printf("rando post: %v\n", post)
+		posts = append(posts, post)
+		return nil
+	}
+	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetInt64(":userID",
+			userID)
+		stmt.SetInt64(":before", before.UTC().Unix())
+		stmt.SetInt64(":limit", int64(limit))
+		return nil
+	})
+	return posts, err
+}
+
 func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
-		select post_id, user.user_name, created_at, content
+		select post_id, user.user_name, user.display_name, post.created_at, post.content
 		from post
 		join user using (user_id)
 		where user_id = ?
@@ -309,11 +341,12 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 		limit ?`
 	collect := func(stmt *sqlite.Stmt) error {
 		post := Post{
-			PostID:    stmt.ColumnInt64(0),
-			UserID:    userID,
-			UserName:  stmt.ColumnText(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0).UTC(),
-			Content:   stmt.ColumnText(3),
+			PostID:          stmt.ColumnInt64(0),
+			UserID:          userID,
+			UserName:        stmt.ColumnText(1),
+			UserDisplayName: stmt.ColumnText(2),
+			CreatedAt:       time.Unix(stmt.ColumnInt64(3), 0).UTC(),
+			Content:         stmt.ColumnText(4),
 		}
 		posts = append(posts, post)
 		return nil
@@ -324,11 +357,13 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
-	query := "select user_id, user_name from user where user_name = ? limit 1"
+	query := "select user_id, user_name, display_name, bio from user where user_name = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
 		user = &User{
-			UserID: stmt.ColumnInt64(0),
-			Name:   stmt.ColumnText(1),
+			UserID:      stmt.ColumnInt64(0),
+			Name:        stmt.ColumnText(1),
+			DisplayName: stmt.ColumnText(2),
+			Bio:         stmt.ColumnText(3),
 		}
 		return nil
 	}
@@ -370,15 +405,28 @@ func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) 
 		return nil, err
 	}
 
-	query := "insert into user (user_name, password_salt, password_hash) values (?, ?, ?)"
-	err = sqlitex.Exec(conn, query, nil, name, hashAndSalt.Salt, hashAndSalt.Hash)
+	query := "insert into user (user_name, display_name, password_salt, password_hash) values (?, ?, ?, ?)"
+	err = sqlitex.Exec(conn, query, nil, name, name, hashAndSalt.Salt, hashAndSalt.Hash)
 	if err != nil {
 		return nil, err
 	}
 
 	userID := conn.LastInsertRowID()
-	user := &User{UserID: userID, Name: name}
+	user := &User{UserID: userID, Name: name, DisplayName: name}
 	return user, err
+}
+
+func UpdateUserProfile(conn *sqlite.Conn, name string, displayName string, bio string) error {
+	query := `
+		update user
+		set display_name = :displayName, bio = :bio
+		where user_name = :name`
+	return exec(conn, query, nil, func(stmt *sqlite.Stmt) error {
+		stmt.SetText(":displayName", displayName)
+		stmt.SetText(":bio", bio)
+		stmt.SetText(":name", name)
+		return nil
+	})
 }
 
 func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
@@ -405,15 +453,17 @@ func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
 
 func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*User, error) {
 	query := `
-		select user_id, user.user_name
+		select user_id, user.user_name, user.display_name, user.bio
 		from user_session
 		join user using (user_id)
 		where session_public_id = ? and expiration_time > ?`
 	var user *User
 	collect := func(stmt *sqlite.Stmt) error {
 		user = &User{
-			UserID: stmt.ColumnInt64(0),
-			Name:   stmt.ColumnText(1),
+			UserID:      stmt.ColumnInt64(0),
+			Name:        stmt.ColumnText(1),
+			DisplayName: stmt.ColumnText(2),
+			Bio:         stmt.ColumnText(3),
 		}
 		return nil
 	}

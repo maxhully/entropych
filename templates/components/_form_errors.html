@@ -1,0 +1,9 @@
+{{define "form_errors"}}
+{{if ne (len .) 0 }}
+<ul>
+    {{range $name, $err := .}}
+    <li>{{$name}}: {{$err}}</li>
+    {{end}}
+</ul>
+{{end}}
+{{end}}

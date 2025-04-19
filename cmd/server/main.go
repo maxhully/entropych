@@ -122,7 +122,7 @@ func getRecommendedPosts(conn *sqlite.Conn, user *entropy.User, before time.Time
 	if err != nil {
 		return nil, err
 	}
-	chaosPosts, err := entropy.GetRecentPosts(conn, before, limit)
+	chaosPosts, err := entropy.GetRecentPostsFromRandos(conn, user.UserID, before, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ type nameAndPasswordForm struct {
 	Password  string
 	CSRFField template.HTML
 	// rename to Problems?
-	Errors map[string][]string
+	Errors map[string]string
 }
 
 func (f *nameAndPasswordForm) ParseFromBody(r *http.Request) error {
@@ -284,10 +284,6 @@ func (f *nameAndPasswordForm) ParseFromBody(r *http.Request) error {
 	return nil
 }
 
-func (f *nameAndPasswordForm) pushError(fieldName string, errorMessage string) {
-	f.Errors[fieldName] = append(f.Errors[fieldName], errorMessage)
-}
-
 type SignUpForm struct {
 	nameAndPasswordForm
 }
@@ -295,7 +291,7 @@ type SignUpForm struct {
 func newSignUpForm(r *http.Request) *SignUpForm {
 	return &SignUpForm{nameAndPasswordForm{
 		CSRFField: csrf.TemplateField(r),
-		Errors:    make(map[string][]string),
+		Errors:    make(map[string]string),
 	}}
 }
 
@@ -304,23 +300,23 @@ func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
 	const maxLength = 256
 
 	if len(f.Name) == 0 {
-		f.pushError("name", "Name is required")
+		f.Errors["name"] = "Name is required"
 	} else if len(f.Name) > maxLength {
-		f.pushError("name", fmt.Sprintf("Name is too long (max %d characters)", maxLength))
+		f.Errors["name"] = fmt.Sprintf("Name is too long (max %d characters)", maxLength)
 	} else {
 		existingUserWithName, err := entropy.GetUserByName(conn, f.Name)
 		if err != nil {
 			return err
 		}
 		if existingUserWithName != nil {
-			f.pushError("name", "A user with this name already exists")
+			f.Errors["name"] = "A user with this name already exists"
 		}
 	}
 
 	if len(f.Password) == 0 {
-		f.pushError("password", "Password is required")
+		f.Errors["password"] = "Password is required"
 	} else if len(f.Password) > maxLength {
-		f.pushError("password", fmt.Sprintf("Password is too long (max %d characters)", maxLength))
+		f.Errors["password"] = fmt.Sprintf("Password is too long (max %d characters)", maxLength)
 	}
 	return nil
 }
@@ -336,7 +332,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
-		badRequest(w)
+		badRequest(w, err)
 		return
 	}
 	if err := form.Validate(conn); err != nil {
@@ -382,6 +378,7 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 		user = &entropy.User{
 			UserID: stmt.ColumnInt64(0),
 			Name:   stmt.ColumnText(1),
+			// Omitting DisplayName and Bio because we don't need them here
 		}
 		if hashAndSalt.Salt, err = io.ReadAll(stmt.ColumnReader(2)); err != nil {
 			return err
@@ -399,11 +396,11 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 		// security reasons. But this is a social networking site where the existence of
 		// a user with a given username is public knowledge. (Also, even on a private
 		// site, the registration form will often give away this info anyways.)
-		form.pushError("name", "There is no user with this name")
+		form.Errors["name"] = "There is no user with this name"
 		return nil, nil
 	}
 	if !entropy.CheckPassword([]byte(form.Password), hashAndSalt) {
-		form.pushError("password", "This password is incorrect")
+		form.Errors["password"] = "This password is incorrect"
 		return nil, nil
 	}
 	// The user can log in!
@@ -413,7 +410,7 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 func newLogInForm(r *http.Request) LogInForm {
 	return LogInForm{nameAndPasswordForm{
 		CSRFField: csrf.TemplateField(r),
-		Errors:    make(map[string][]string),
+		Errors:    make(map[string]string),
 	}}
 }
 
@@ -427,7 +424,7 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
-		badRequest(w)
+		badRequest(w, err)
 		return
 	}
 
@@ -450,7 +447,8 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func badRequest(w http.ResponseWriter) {
+func badRequest(w http.ResponseWriter, err error) {
+	log.Printf("sending 400 error: %s", err)
 	http.Error(w, "400 Bad Request", http.StatusBadRequest)
 }
 
@@ -475,7 +473,7 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		badRequest(w)
+		badRequest(w, err)
 		return
 	}
 	content := r.PostForm.Get("content")
@@ -549,6 +547,70 @@ func (app *App) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, followedUser.URL(), http.StatusSeeOther)
 }
 
+// TODO: reset password and stuff
+type updateProfileForm struct {
+	DisplayName string
+	Bio         string
+	Errors      map[string]string
+}
+
+type updateProfilePage struct {
+	Form      updateProfileForm
+	User      *entropy.User
+	CSRFField template.HTML
+}
+
+func (f *updateProfileForm) Validate() {
+	if len(f.DisplayName) > 256 {
+		f.Errors["display_name"] = fmt.Sprintf("Display name is too long (max %d characters)", 256)
+	}
+	if len(f.Bio) > 256 {
+		f.Errors["bio"] = fmt.Sprintf("Bio is too long (max %d characters)", 256)
+	}
+}
+
+func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
+	user := getCurrentUser(r.Context())
+	if user == nil {
+		redirectToLogin(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, err)
+		return
+	}
+	var page updateProfilePage
+	page.User = user
+	page.Form.Errors = make(map[string]string)
+	page.Form.DisplayName = user.DisplayName
+	page.Form.Bio = user.Bio
+	page.CSRFField = csrf.TemplateField(r)
+
+	if v := r.PostForm.Get("display_name"); v != "" {
+		page.Form.DisplayName = v
+	}
+	if v := r.PostForm.Get("bio"); v != "" {
+		page.Form.Bio = v
+	}
+
+	if r.Method == http.MethodGet {
+		app.RenderTemplate(w, "user_profile.html", page)
+		return
+	}
+	if page.Form.Validate(); len(page.Form.Errors) > 0 {
+		app.RenderTemplate(w, "user_profile.html", page)
+		return
+	}
+	err := entropy.UpdateUserProfile(conn, user.Name, page.Form.DisplayName, page.Form.Bio)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 func main() {
 	t := timer("startup")
 	// Might want this to be in a secret file instead
@@ -591,6 +653,8 @@ func main() {
 	mux.HandleFunc("GET /login", app.LogIn)
 	mux.HandleFunc("POST /login", app.LogIn)
 	mux.HandleFunc("POST /logout", app.LogOut)
+	mux.HandleFunc("GET /profile", app.UpdateProfile)
+	mux.HandleFunc("POST /profile", app.UpdateProfile)
 
 	mux.HandleFunc("POST /posts/new", app.NewPost)
 

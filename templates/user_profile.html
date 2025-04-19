@@ -1,0 +1,25 @@
+{{define "main"}}
+<p>
+    <a href="/"><- back home</a>
+</p>
+
+<h1>{{.User.Name}}</h1>
+
+<form method="post">
+    {{.CSRFField}}
+    {{template "form_errors" .Form.Errors}}
+    <div>
+        <label>
+            Display Name<br>
+            <input type="text" name="display_name" value="{{.Form.DisplayName}}">
+        </label>
+    </div>
+    <div>
+        <label for="bio">Bio</label>
+    </div>
+    <div>
+        <textarea name="bio" id="bio" rows="4" cols="60">{{.Form.Bio}}</textarea>
+    </div>
+    <button>Save</button>
+</form>
+{{end}}

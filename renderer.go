@@ -2,6 +2,7 @@ package entropy
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -25,6 +26,9 @@ func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, name string, data any)
 	// We render to a buffer (from the buffer pool) so that we can handle template
 	// execution errors (without sending half a template response first).
 	t := r.templates[name]
+	if t == nil {
+		return fmt.Errorf("ExecuteTemplate: template not found: %v; templates=%+v", name, r.templates)
+	}
 	buf := r.bufpool.Get()
 	defer r.bufpool.Put(buf)
 	err := t.ExecuteTemplate(w, r.baseTemplateName, data)
