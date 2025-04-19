@@ -7,6 +7,7 @@
 
 {{if .User}}
 <p>Hello, {{.User.Name}}!
+    <a href="/profile">Profile</a>
 <form method="post" action="/logout">
     {{.CSRFField}}
     <button>Log out</button>

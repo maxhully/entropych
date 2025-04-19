@@ -3,13 +3,16 @@ package entropy
 import (
 	"context"
 	"io"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func setUpTestDB(t *testing.T) *DB {
-	db, err := NewDB("file::memory:?mode=memory", 1)
+	dir := t.TempDir()
+	uri := path.Join(dir, "temptest.db")
+	db, err := NewDB(uri, 10)
 	if err != nil {
 		t.Fatalf("NewDB error: %v", err)
 	}

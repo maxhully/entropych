@@ -7,14 +7,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"strings"
 	"testing"
 
 	"github.com/maxhully/entropy"
 )
 
-func setUpTestApp() (*App, error) {
-	db, err := entropy.NewDB("file::memory:?mode=memory", 1)
+func setUpTestApp(t *testing.T) (*App, error) {
+	dir := t.TempDir()
+	uri := path.Join(dir, "temptest.db")
+	db, err := entropy.NewDB(uri, 10)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +39,7 @@ func checkBodyContains(t *testing.T, resp *http.Response, substr string) {
 }
 
 func TestHomepage(t *testing.T) {
-	app, err := setUpTestApp()
+	app, err := setUpTestApp(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +58,7 @@ func TestHomepage(t *testing.T) {
 }
 
 func TestSignUpUser(t *testing.T) {
-	app, err := setUpTestApp()
+	app, err := setUpTestApp(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +112,7 @@ func TestLogInUser(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(fmt.Sprintf("%v", testCase), func(t *testing.T) {
-			app, err := setUpTestApp()
+			app, err := setUpTestApp(t)
 			if err != nil {
 				t.Fatal(err)
 			}
