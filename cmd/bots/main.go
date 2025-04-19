@@ -81,7 +81,6 @@ func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <
 					continue
 				}
 			}
-			// TODO: concatenate sequential lines by the same character?
 			line := dialogueLine{
 				act:       rawLine[0],
 				scene:     rawLine[1],
@@ -116,9 +115,13 @@ const csvURLPrefix = "https://raw.githubusercontent.com/nrennie/shakespeare/refs
 func main() {
 	var shouldPost bool
 	var playCSVName string
+	var dbFilename string
 	var fromLine int
+	var maxSleep int
 
+	flag.StringVar(&dbFilename, "db", "test.db", "Filename of the SQLite database to connect to")
 	flag.BoolVar(&shouldPost, "posts", false, "Create Posts using the dialogue lines (not idempotent!)")
+	flag.IntVar(&maxSleep, "sleep", 30, "Max. random sleep between posts (to imitate humans)")
 	flag.StringVar(&playCSVName, "play", "", "Filename of the CSV in the nrennie/shakespeare repo (e.g. 'twelfth_night.csv')")
 	flag.IntVar(&fromLine, "from-line", 0, "Start processing lines this line_number")
 
@@ -139,7 +142,7 @@ func main() {
 	defer resp.Body.Close()
 	lines, errChan := streamDialogueLines(resp.Body, fromLine)
 
-	dbpool, err := sqlitex.Open("test.db", 0, 10)
+	dbpool, err := sqlitex.Open(dbFilename, 0, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -158,9 +161,13 @@ func main() {
 	// We close both channels when an error happens, so we can safely range over these
 	// channels to get all the lines we parsed and all the errors (one or zero) that we
 	// hit.
+	// TODO: concatenate sequential lines by the same character
+	var lineToPost dialogueLine
 	for line := range lines {
 		// Random pause between 5 and 30 seconds
-		time.Sleep(time.Second * time.Duration(5+25*rand.Float32()))
+		if maxSleep > 0 {
+			time.Sleep(time.Second * time.Duration(float32(maxSleep)*rand.Float32()))
+		}
 
 		fmt.Printf("line: %v\n", line)
 
@@ -173,19 +180,38 @@ func main() {
 		linesByCharacter[line.character]++
 		user, err := getOrCreateUser(conn, line.character)
 		if err != nil {
-			log.Fatalf("could not get or create user: %v", err)
+			log.Fatalf("could not get or create user %v: %v", line.character, err)
 		}
 		charactersInScene[user.UserID] = true
-
-		if shouldPost {
-			entropy.CreatePost(conn, user.UserID, line.dialogue)
-		}
 
 		// Have both users follow each other
 		for otherUserID := range charactersInScene {
 			entropy.FollowUser(conn, user.UserID, otherUserID)
 			entropy.FollowUser(conn, otherUserID, user.UserID)
 		}
+
+		if !shouldPost {
+			continue
+		}
+		// If this is the first iteration, lineToPost is empty so we set it and continue
+		if lineToPost.dialogue == "" {
+			lineToPost = line
+			continue
+		}
+		// Sorry for this formatting
+		if len(lineToPost.dialogue)+len(line.dialogue) < 256 &&
+			lineToPost.act == line.act &&
+			lineToPost.scene == line.scene &&
+			lineToPost.character == line.character {
+			lineToPost.dialogue += " " + line.dialogue
+		} else {
+			// Post the accumulated line, because line is not a continuation of it (or the accumulated line has gotten too long)
+			postDialogueLine(conn, &lineToPost)
+			lineToPost = line
+		}
+	}
+	if lineToPost.dialogue != "" {
+		postDialogueLine(conn, &lineToPost)
 	}
 
 	for err := range errChan {
@@ -195,4 +221,16 @@ func main() {
 	for k, v := range linesByCharacter {
 		fmt.Printf("%s: %d\n", k, v)
 	}
+}
+
+func postDialogueLine(conn *sqlite.Conn, line *dialogueLine) {
+	user, err := getOrCreateUser(conn, line.character)
+	if err != nil {
+		log.Fatalf("could not get or create user %v: %v", line.character, err)
+	}
+	_, err = entropy.CreatePost(conn, user.UserID, line.dialogue)
+	if err != nil {
+		log.Fatalf("could not post: %v", err)
+	}
+	fmt.Printf("[%v]: %v", line.character, line.dialogue)
 }
