@@ -15,6 +15,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
 	"github.com/gorilla/csrf"
+	"github.com/gorilla/handlers"
 	"github.com/maxhully/entropy"
 )
 
@@ -178,8 +180,10 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 	if err != nil {
 		return nil, err
 	}
-	err = entropy.DistortPostsForUser(conn, user, posts)
-	if err != nil {
+	if err = entropy.GetReactionCountsForPosts(conn, posts); err != nil {
+		return nil, err
+	}
+	if err = entropy.DistortPostsForUser(conn, user, posts); err != nil {
 		return nil, err
 	}
 	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
@@ -630,6 +634,7 @@ func randomHex() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// TODO: set caching headers
 func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.GetReadOnly(r.Context())
 	defer app.db.PutReadOnly(conn)
@@ -705,7 +710,7 @@ func main() {
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
-	server := csrfProtect(app.withUserContextMiddleware(mux))
+	server := handlers.LoggingHandler(os.Stdout, csrfProtect(app.withUserContextMiddleware(mux)))
 	t()
 
 	http.ListenAndServe(":7777", server)
