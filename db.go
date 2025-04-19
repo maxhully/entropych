@@ -157,6 +157,11 @@ func userURL(userName string) string {
 	return fmt.Sprintf("/u/%s/", url.PathEscape(userName))
 }
 
+type PostReactionCount struct {
+	Emoji string
+	Count int
+}
+
 type Post struct {
 	PostID             int64
 	UserID             int64
@@ -165,6 +170,7 @@ type Post struct {
 	UserAvatarUploadID int // TODO: I gotta store the filename instead
 	CreatedAt          time.Time
 	Content            string
+	Reactions          []PostReactionCount
 }
 
 func (p *Post) UserURL() string {
@@ -435,8 +441,12 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 		exists = true
 		return nil
 	}
-	if err := sqlitex.Exec(conn, query, collect, postID); err != nil || !exists {
+	if err := sqlitex.Exec(conn, query, collect, postID); err != nil {
 		return false, err
+	}
+	fmt.Printf("exists: %v\n", exists)
+	if !exists {
+		return false, nil
 	}
 	query = `
 		insert into reaction (post_id, user_id, reacted_at, emoji)
@@ -445,8 +455,8 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 	err := exec(conn, query, nil, func(stmt *sqlite.Stmt) error {
 		stmt.SetInt64(":postID", postID)
 		stmt.SetInt64(":userID", userID)
-		stmt.SetText(":emoji", emoji)
 		stmt.SetInt64(":reactedAt", utcNow().Unix())
+		stmt.SetText(":emoji", emoji)
 		return nil
 	})
 	if err != nil {
@@ -455,18 +465,49 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 	return exists, err
 }
 
+// Sets the Reactions field on each post in the given slice
+func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post) error {
+	query := `
+		select
+			post_id, emoji, count(*) as count
+		from reaction
+		where post_id in (select value from json_each(:postIDsJSON))
+		group by post_id, emoji
+		`
+	postIDs := make([]int64, len(posts))
+	postsByID := make(map[int64]*Post)
+	for i := range posts {
+		postsByID[posts[i].PostID] = &posts[i]
+		postIDs[i] = posts[i].PostID
+	}
+	postIDsJSON, err := json.Marshal(postIDs)
+	if err != nil {
+		return err
+	}
+	collect := func(stmt *sqlite.Stmt) error {
+		postID := stmt.ColumnInt64(0)
+		postsByID[postID].Reactions = append(postsByID[postID].Reactions, PostReactionCount{
+			Emoji: stmt.ColumnText(1),
+			Count: stmt.ColumnInt(2),
+		})
+		return nil
+	}
+	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetText(":postIDsJSON", string(postIDsJSON))
+		return nil
+	})
+}
+
 func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) {
 	hashAndSalt, err := HashAndSaltPassword([]byte(password))
 	if err != nil {
 		return nil, err
 	}
-
 	query := "insert into user (user_name, display_name, password_salt, password_hash) values (?, ?, ?, ?)"
 	err = sqlitex.Exec(conn, query, nil, name, name, hashAndSalt.Salt, hashAndSalt.Hash)
 	if err != nil {
 		return nil, err
 	}
-
 	userID := conn.LastInsertRowID()
 	user := &User{UserID: userID, Name: name, DisplayName: name}
 	return user, err

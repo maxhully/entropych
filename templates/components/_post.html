@@ -17,10 +17,19 @@
             </div>
         </div>
     </div>
-    <!-- TODO: will probably need some JS to make sure pagination works right here -->
+    <!-- TODO: will need some JS to make sure pagination works right here -->
+    {{if .Reactions}}
+    {{range $reaction := .Reactions}}
+    <form method="post" action="/p/{{$.PostID}}/reaction" class="post__reactions">
+        {{csrf_field}}
+        <button>{{$reaction.Emoji}} {{$reaction.Count}}</button>
+    </form>
+    {{end}}
+    {{else}}
     <form method="post" action="/p/{{.PostID}}/reaction" class="post__reactions">
         {{csrf_field}}
         <button>❤️</button>
     </form>
+    {{end}}
 </li>
 {{end}}

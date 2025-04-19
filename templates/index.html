@@ -3,19 +3,18 @@
 {{end}}
 
 {{define "main"}}
-<h1>entropych.social</h1>
-
-{{if .User}}
-<p>Hello, {{.User.Name}}!
-    <a href="/profile">Profile</a>
-<form method="post" action="/logout">
-    {{csrf_field}}
-    <button>Log out</button>
-</form>
-</p>
-{{else}}
-<p>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></p>
-{{end}}
+<header class="header">
+    <h1>entropych.social</h1>
+    {{if .User}}
+    <div>Hello, {{.User.Name}}! <a href="/profile">Profile</a></div>
+    <form method="post" action="/logout">
+        {{csrf_field}}
+        <button>Log out</button>
+    </form>
+    {{else}}
+    <div>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></div>
+    {{end}}
+</header>
 
 {{if .User}}
 <form method="post" action="/posts/new">

@@ -43,11 +43,13 @@ func GetRecommendedPosts(conn *sqlite.Conn, user *User, before time.Time, limit 
 			chaosPosts = chaosPosts[1:]
 		}
 	}
+	if err := GetReactionCountsForPosts(conn, posts); err != nil {
+		return nil, err
+	}
 	sort.Slice(posts, func(i, j int) bool {
 		return posts[i].CreatedAt.After(posts[j].CreatedAt)
 	})
-	err = DistortPostsForUser(conn, user, posts)
-	if err != nil {
+	if err := DistortPostsForUser(conn, user, posts); err != nil {
 		return nil, err
 	}
 	return posts, err
