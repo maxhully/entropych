@@ -429,17 +429,20 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) 
 }
 
 func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji string) (bool, error) {
-	// TODO: do a query first to check if the post exists
-	query := `
+	query := "select 1 from post where post_id = ?"
+	exists := false
+	collect := func(stmt *sqlite.Stmt) error {
+		exists = true
+		return nil
+	}
+	if err := sqlitex.Exec(conn, query, collect, postID); err != nil || !exists {
+		return false, err
+	}
+	query = `
 		insert into reaction (post_id, user_id, reacted_at, emoji)
 		values (:postID, :userID, :reactedAt, :emoji)
 		on conflict do nothing`
-	rows := 0
-	collect := func(stmt *sqlite.Stmt) error {
-		rows++
-		return nil
-	}
-	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+	err := exec(conn, query, nil, func(stmt *sqlite.Stmt) error {
 		stmt.SetInt64(":postID", postID)
 		stmt.SetInt64(":userID", userID)
 		stmt.SetText(":emoji", emoji)
@@ -447,10 +450,9 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return exists, err
 	}
-	// TODO: actually return whether it was found
-	return true, err
+	return exists, err
 }
 
 func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) {
