@@ -120,7 +120,7 @@ func main() {
 
 	flag.StringVar(&dbFilename, "db", "test.db", "Filename of the SQLite database to connect to")
 	flag.BoolVar(&shouldPost, "posts", false, "Create Posts using the dialogue lines (not idempotent!)")
-	flag.IntVar(&maxSleep, "sleep", 30, "Max. random sleep between posts (to imitate humans)")
+	flag.IntVar(&maxSleep, "sleep", 10, "Max. random sleep between posts (to imitate humans)")
 	flag.StringVar(&playCSVName, "play", "", "Filename of the CSV in the nrennie/shakespeare repo (e.g. 'twelfth_night.csv')")
 	flag.IntVar(&fromLine, "from-line", 0, "Start processing lines this line_number")
 
@@ -156,10 +156,9 @@ func main() {
 	// We close both channels when an error happens, so we can safely range over these
 	// channels to get all the lines we parsed and all the errors (one or zero) that we
 	// hit.
-	// TODO: concatenate sequential lines by the same character
 	var lineToPost dialogueLine
 	for line := range lines {
-		// Random pause between 5 and 30 seconds
+		// Random pause
 		if maxSleep > 0 {
 			time.Sleep(time.Second * time.Duration(float32(maxSleep)*rand.Float32()))
 		}
