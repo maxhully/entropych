@@ -134,16 +134,33 @@ class AvatarGen extends HTMLElement {
     connectedCallback() {
         this.addEventListener("click", (e) => {
             if (!e.target.matches("[data-action=generate]")) return;
-
-            const canvas = this.querySelector("canvas");
-            if (!canvas) {
-                throw new Error("h-avatar-gen: couldn't find canvas");
-            }
-
-            drawAvatar(canvas);
-            canvas.toBlob((blob) => {
-                const url = URL.createObjectURL(blob);
+            this.generate();
+            this.saveToFileInputIfPresent();
+        });
+        this.generate();
+    }
+    generate() {
+        const canvas = this.querySelector("canvas");
+        if (!canvas) {
+            throw new Error("h-avatar-gen: couldn't find canvas");
+        }
+        drawAvatar(canvas);
+    }
+    saveToFileInputIfPresent() {
+        const canvas = this.querySelector("canvas");
+        const uploadInput = this.querySelector("input[type=file]");
+        if (!uploadInput) {
+            console.log("h-avatar-gen: couldn't file file input; not saving");
+            return;
+        }
+        canvas.toBlob((blob) => {
+            const file = new File([blob], "avatar.png", {
+                type: "image/png",
+                lastModified: new Date().getTime(),
             });
+            const container = new DataTransfer();
+            container.items.add(file);
+            uploadInput.files = container.files;
         });
     }
 }

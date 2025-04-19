@@ -1,3 +1,7 @@
+{{define "scripts"}}
+<script src="/static/avatar_generator.js"></script>
+{{end}}
+
 {{define "main"}}
 <h1>about entropych.social</h1>
 
@@ -14,10 +18,6 @@
     We will destroy any competitor who dares stand in our way.
 </p>
 
-<!-- We're hiring! -->
-
-<script src="/static/avatar_generator.js"></script>
-
 <h-avatar-gen>
     <div>
         <canvas width="256" height="256">
@@ -25,5 +25,4 @@
     </div>
     <button type="button" data-action="generate">Generate!</button>
 </h-avatar-gen>
-
 {{end}}

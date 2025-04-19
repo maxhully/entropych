@@ -1,3 +1,7 @@
+{{define "scripts"}}
+<script src="/static/avatar_generator.js" defer></script>
+{{end}}
+
 {{define "main"}}
 <p>
     <a href="/"><- back home</a>
@@ -5,7 +9,7 @@
 
 <h1>{{.User.Name}}</h1>
 
-<form method="post">
+<form method="post" enctype="multipart/form-data">
     {{.CSRFField}}
     {{template "form_errors" .Form.Errors}}
     <div>
@@ -19,6 +23,17 @@
     </div>
     <div>
         <textarea name="bio" id="bio" rows="4" cols="60">{{.Form.Bio}}</textarea>
+    </div>
+    <div>
+        <label for="avatar">Avatar</label>
+        <h-avatar-gen>
+            <div>
+                <canvas width="256" height="256">
+                </canvas>
+            </div>
+            <input type="file" name="avatar" id="avatar" accept="image/png" hidden>
+            <button type="button" data-action="generate">Generate!</button>
+        </h-avatar-gen>
     </div>
     <button>Save</button>
 </form>
