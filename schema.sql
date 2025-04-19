@@ -1,7 +1,7 @@
 /* All timestamp columns are unix timestamps in UTC */
 
 create table if not exists user (
-    user_id integer primary key not null,
+    user_id integer primary key,
     user_name text not null,
     password_hash blob,
     password_salt blob,
@@ -11,7 +11,7 @@ create table if not exists user (
 create unique index if not exists user_user_name_uniq_idx on user (user_name);
 
 create table if not exists post (
-    post_id integer primary key not null,
+    post_id integer primary key,
     user_id integer references user(user_id),
     created_at integer not null, /* unix timestamp */
     content text not null
@@ -28,7 +28,7 @@ create table if not exists post_reply (
 */
 
 create table if not exists user_session (
-    user_session_id integer primary key not null,
+    user_session_id integer primary key,
     user_id integer references user(user_id),
     session_public_id blob not null, /* random string we can put in a cookie */
     created_at integer not null, /* unix timestamp */
@@ -44,4 +44,11 @@ create table if not exists user_follow (
     followed_user_id integer not null references user(user_id), /* the followed user */
     followed_at integer not null, /* unix timestamp */
     primary key (user_id, followed_user_id)
+);
+
+create table if not exists upload (
+    upload_id integer primary key,
+    filename text not null unique,
+    content_type text not null,
+    contents blob not null
 );

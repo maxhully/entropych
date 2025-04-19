@@ -2,9 +2,11 @@ package entropy
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"crawshaw.io/sqlite/sqlitex"
+	"github.com/stretchr/testify/assert"
 )
 
 func setUpTestDB(t *testing.T) *DB {
@@ -145,4 +147,21 @@ func TestGetDistanceFromUser(t *testing.T) {
 	if dists[strangerUser.UserID] != MaxDistortionLevel {
 		t.Errorf("expected dists[%v]=%v to be %d", strangerUser.UserID, dists[strangerUser.UserID], MaxDistortionLevel)
 	}
+}
+
+func TestUploads(t *testing.T) {
+	db := setUpTestDB(t)
+	defer db.Close()
+
+	conn := db.Get(context.TODO())
+	defer db.Put(conn)
+
+	err := SaveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
+	assert.Nil(t, err)
+
+	blob, err := OpenUploadContents(conn, "hello.txt")
+	assert.Nil(t, err)
+	contents, err := io.ReadAll(blob)
+	assert.Nil(t, err)
+	assert.Equal(t, string(contents), "hello, world!")
 }

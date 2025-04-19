@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -581,4 +582,25 @@ func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 		posts[i].Content = DistortContent(posts[i].Content, distances[posts[i].UserID])
 	}
 	return nil
+}
+
+// TODO: streaming blob writes? would be cool!
+// TODO: maybe this function should manage setting a unique name, instead of expecting
+// that from the caller. (and let filename not be unique)
+func SaveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) error {
+	query := "insert into upload (filename, content_type, contents) values (?, ?, ?)"
+	return sqlitex.Exec(conn, query, nil, filename, contentType, contents)
+}
+
+func OpenUploadContents(conn *sqlite.Conn, filename string) (io.Reader, error) {
+	query := "select upload_id from upload where filename = ? limit 1"
+	var uploadID int
+	collect := func(stmt *sqlite.Stmt) error {
+		uploadID = stmt.ColumnInt(0)
+		return nil
+	}
+	if err := sqlitex.Exec(conn, query, collect, filename); err != nil {
+		return nil, err
+	}
+	return conn.OpenBlob("", "upload", "contents", int64(uploadID), false)
 }
