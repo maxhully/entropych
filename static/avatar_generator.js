@@ -39,7 +39,6 @@ function randomColor() {
 }
 
 function colorToString({ h, s, l }) {
-    console.log({ h, s, l });
     return `hsl(${h}, ${s}%, ${l}%)`;
 }
 
@@ -138,6 +137,7 @@ class AvatarGen extends HTMLElement {
             this.saveToFileInputIfPresent();
         });
         this.generate();
+        this.saveToFileInputIfPresent();
     }
     generate() {
         const canvas = this.querySelector("canvas");

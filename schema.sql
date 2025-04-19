@@ -1,12 +1,21 @@
 /* All timestamp columns are unix timestamps in UTC */
 
+create table if not exists upload (
+    upload_id integer primary key,
+    created_at integer not null, /* unix timestamp */
+    filename text not null unique,
+    content_type text not null,
+    contents blob not null
+);
+
 create table if not exists user (
     user_id integer primary key,
     user_name text not null,
     password_hash blob,
     password_salt blob,
     display_name text,
-    bio text
+    bio text,
+    avatar_upload_id integer references upload (upload_id)
 );
 create unique index if not exists user_user_name_uniq_idx on user (user_name);
 
@@ -17,9 +26,9 @@ create table if not exists post (
     content text not null
 );
 create index if not exists post_user_id_idx on post (user_id);
-/*
 create index if not exists post_created_at_idx on post (created_at);
 
+/*
 create table if not exists post_reply (
     post_id integer references post(post_id),
     reply_post_id integer references post(post_id),
@@ -44,11 +53,4 @@ create table if not exists user_follow (
     followed_user_id integer not null references user(user_id), /* the followed user */
     followed_at integer not null, /* unix timestamp */
     primary key (user_id, followed_user_id)
-);
-
-create table if not exists upload (
-    upload_id integer primary key,
-    filename text not null unique,
-    content_type text not null,
-    contents blob not null
 );

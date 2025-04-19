@@ -31,8 +31,11 @@ var schemaSQL string
 // want to panic, but we also don't expect them to happen almost ever.
 //
 // ...Maybe I _do_ want to panic on unexpected SQLite errors?
+//
+// TODO: separate read-only and read-write pools
 type DB struct {
-	*sqlitex.Pool
+	roPool *sqlitex.Pool
+	rwPool *sqlitex.Pool
 }
 
 func setUpDb(conn *sqlite.Conn) error {
@@ -77,19 +80,59 @@ func exec(conn *sqlite.Conn, query string, resultFn func(stmt *sqlite.Stmt) erro
 	return err
 }
 
-func NewDB(dbpool *sqlitex.Pool) (*DB, error) {
-	conn := dbpool.Get(context.TODO())
+func NewDB(uri string, poolSize int) (*DB, error) {
+	rwPool, err := sqlitex.Open(uri,
+		(sqlite.SQLITE_OPEN_READWRITE |
+			sqlite.SQLITE_OPEN_CREATE |
+			sqlite.SQLITE_OPEN_WAL |
+			sqlite.SQLITE_OPEN_URI |
+			sqlite.SQLITE_OPEN_NOMUTEX),
+		1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't open connection pool: %s", err)
+	}
+	conn := rwPool.Get(context.TODO())
 	if conn == nil {
 		return nil, errors.New("couldn't get a connection")
 	}
-	defer dbpool.Put(conn)
-
-	err := setUpDb(conn)
-	if err != nil {
+	defer rwPool.Put(conn)
+	if err = setUpDb(conn); err != nil {
+		rwPool.Close()
 		return nil, fmt.Errorf("couldn't set up db: %s", err)
 	}
+	roPool, err := sqlitex.Open(uri,
+		(sqlite.SQLITE_OPEN_READONLY |
+			sqlite.SQLITE_OPEN_WAL |
+			sqlite.SQLITE_OPEN_URI |
+			sqlite.SQLITE_OPEN_NOMUTEX),
+		poolSize,
+	)
+	if err != nil {
+		rwPool.Close()
+		return nil, fmt.Errorf("couldn't open connection pool: %s", err)
+	}
+	return &DB{roPool: roPool, rwPool: rwPool}, nil
+}
 
-	return &DB{dbpool}, nil
+func (db *DB) Get(ctx context.Context) *sqlite.Conn {
+	return db.rwPool.Get(ctx)
+}
+
+func (db *DB) Put(conn *sqlite.Conn) {
+	db.rwPool.Put(conn)
+}
+
+func (db *DB) GetReadOnly(ctx context.Context) *sqlite.Conn {
+	return db.roPool.Get(ctx)
+}
+
+func (db *DB) PutReadOnly(conn *sqlite.Conn) {
+	db.roPool.Put(conn)
+}
+
+func (db *DB) Close() error {
+	return errors.Join(db.roPool.Close(), db.rwPool.Close())
 }
 
 type User struct {
@@ -98,7 +141,7 @@ type User struct {
 	UserID      int64
 	Name        string
 	DisplayName string
-	// We don't always need the Bio. Should I take it out of the User struct?
+	// TODO: We don't always need the Bio. I think I should take it out of the User struct
 	Bio string
 }
 
@@ -115,16 +158,24 @@ func userURL(userName string) string {
 }
 
 type Post struct {
-	PostID          int64
-	UserID          int64
-	UserName        string
-	UserDisplayName string
-	CreatedAt       time.Time
-	Content         string
+	PostID             int64
+	UserID             int64
+	UserName           string
+	UserDisplayName    string
+	UserAvatarUploadID int // TODO: I gotta store the filename instead
+	CreatedAt          time.Time
+	Content            string
 }
 
 func (p *Post) UserURL() string {
 	return userURL(p.UserName)
+}
+
+func (p *Post) UserAvatarURL() string {
+	if p.UserAvatarUploadID == 0 {
+		return "/static/Prospero_and_miranda.jpg"
+	}
+	return fmt.Sprintf("/uploads/%d.png", p.UserAvatarUploadID)
 }
 
 type UserSession struct {
@@ -226,28 +277,40 @@ func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) 
 	return result, err
 }
 
+func collectPosts(posts *[]Post) func(stmt *sqlite.Stmt) error {
+	return func(stmt *sqlite.Stmt) error {
+		post := Post{
+			PostID:             stmt.ColumnInt64(0),
+			UserID:             stmt.ColumnInt64(1),
+			UserName:           stmt.ColumnText(2),
+			UserDisplayName:    stmt.ColumnText(3),
+			CreatedAt:          time.Unix(stmt.ColumnInt64(4), 0).UTC(),
+			Content:            stmt.ColumnText(5),
+			UserAvatarUploadID: stmt.ColumnInt(6),
+		}
+		// fmt.Printf("followed post: %v\n", post)
+		*posts = append(*posts, post)
+		return nil
+	}
+}
+
 func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
 	posts := make([]Post, 0, limit)
 	query := `
-		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
+		select
+			post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
 		from post
 		join user using (user_id)
 		where post.created_at < ?
 		order by created_at desc
 		limit ?`
-	collect := func(stmt *sqlite.Stmt) error {
-		post := Post{
-			PostID:          stmt.ColumnInt64(0),
-			UserID:          stmt.ColumnInt64(1),
-			UserName:        stmt.ColumnText(2),
-			UserDisplayName: stmt.ColumnText(3),
-			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
-			Content:         stmt.ColumnText(5),
-		}
-		posts = append(posts, post)
-		return nil
-	}
-	err := sqlitex.Exec(conn, query, collect, before.UTC().Unix(), limit)
+	err := sqlitex.Exec(conn, query, collectPosts(&posts), before.UTC().Unix(), limit)
 	return posts, err
 }
 
@@ -259,7 +322,14 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 			from user_follow
 			where user_id = :userID
 		)
-		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
+		select
+			post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
 		from post
 		join user using (user_id)
 		where (
@@ -269,20 +339,7 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 		order by created_at desc
 		limit :limit
 		`
-	collect := func(stmt *sqlite.Stmt) error {
-		post := Post{
-			PostID:          stmt.ColumnInt64(0),
-			UserID:          stmt.ColumnInt64(1),
-			UserName:        stmt.ColumnText(2),
-			UserDisplayName: stmt.ColumnText(3),
-			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
-			Content:         stmt.ColumnText(5),
-		}
-		// fmt.Printf("followed post: %v\n", post)
-		posts = append(posts, post)
-		return nil
-	}
-	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+	err := exec(conn, query, collectPosts(&posts), func(stmt *sqlite.Stmt) error {
 		stmt.SetInt64(":userID", userID)
 		stmt.SetInt64(":before", before.UTC().Unix())
 		stmt.SetInt64(":limit", int64(limit))
@@ -300,7 +357,14 @@ func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time,
 			from user_follow
 			where user_id = :userID
 		)
-		select post_id, user.user_id, user.user_name, user.display_name, post.created_at, post.content
+		select
+			post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
 		from post
 		join user using (user_id)
 		where post.created_at < :before
@@ -308,20 +372,7 @@ func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time,
 			and user.user_id != :userID
 		order by created_at desc
 		limit :limit`
-	collect := func(stmt *sqlite.Stmt) error {
-		post := Post{
-			PostID:          stmt.ColumnInt64(0),
-			UserID:          stmt.ColumnInt64(1),
-			UserName:        stmt.ColumnText(2),
-			UserDisplayName: stmt.ColumnText(3),
-			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
-			Content:         stmt.ColumnText(5),
-		}
-		// fmt.Printf("rando post: %v\n", post)
-		posts = append(posts, post)
-		return nil
-	}
-	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+	err := exec(conn, query, collectPosts(&posts), func(stmt *sqlite.Stmt) error {
 		stmt.SetInt64(":userID",
 			userID)
 		stmt.SetInt64(":before", before.UTC().Unix())
@@ -334,25 +385,20 @@ func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time,
 func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
-		select post_id, user.user_name, user.display_name, post.created_at, post.content
+		select
+			post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
 		from post
 		join user using (user_id)
 		where user_id = ?
 		order by created_at desc
 		limit ?`
-	collect := func(stmt *sqlite.Stmt) error {
-		post := Post{
-			PostID:          stmt.ColumnInt64(0),
-			UserID:          userID,
-			UserName:        stmt.ColumnText(1),
-			UserDisplayName: stmt.ColumnText(2),
-			CreatedAt:       time.Unix(stmt.ColumnInt64(3), 0).UTC(),
-			Content:         stmt.ColumnText(4),
-		}
-		posts = append(posts, post)
-		return nil
-	}
-	err := sqlitex.Exec(conn, query, collect, userID, limit)
+	err := sqlitex.Exec(conn, query, collectPosts(&posts), userID, limit)
 	return posts, err
 }
 
@@ -372,32 +418,14 @@ func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	return user, err
 }
 
-func CreatePost(conn *sqlite.Conn, userID int64, content string) (*Post, error) {
+func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) {
 	query := "insert into post (user_id, created_at, content) values (?, ?, ?)"
 	err := sqlitex.Exec(conn, query, nil, userID, utcNow().Unix(), content)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	postID := conn.LastInsertRowID()
-
-	var post *Post
-	query = `
-		select post_id, user.user_name, created_at, content
-		from post
-		join user using (user_id)
-		where post_id = ?`
-
-	collect := func(stmt *sqlite.Stmt) error {
-		post = &Post{
-			PostID:    stmt.ColumnInt64(0),
-			UserName:  stmt.ColumnText(1),
-			CreatedAt: time.Unix(stmt.ColumnInt64(2), 0).UTC(),
-			Content:   stmt.ColumnText(3),
-		}
-		return nil
-	}
-	err = sqlitex.Exec(conn, query, collect, postID)
-	return post, err
+	return postID, err
 }
 
 func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) {
@@ -417,21 +445,25 @@ func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) 
 	return user, err
 }
 
-func UpdateUserProfile(conn *sqlite.Conn, name string, displayName string, bio string) error {
+func UpdateUserProfile(conn *sqlite.Conn, name string, displayName string, bio string, avatarUploadID int64) error {
 	query := `
 		update user
-		set display_name = :displayName, bio = :bio
+		set
+			display_name = :displayName,
+			bio = :bio,
+			avatar_upload_id = case when :upload_id != 0 then :upload_id else avatar_upload_id end
 		where user_name = :name`
 	return exec(conn, query, nil, func(stmt *sqlite.Stmt) error {
 		stmt.SetText(":displayName", displayName)
 		stmt.SetText(":bio", bio)
 		stmt.SetText(":name", name)
+		stmt.SetInt64(":upload_id", avatarUploadID)
 		return nil
 	})
 }
 
 func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
-	sessionPublicID := make([]byte, 128)
+	sessionPublicID := make([]byte, 8)
 	if _, err := rand.Read(sessionPublicID); err != nil {
 		return nil, err
 	}
@@ -587,20 +619,24 @@ func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 // TODO: streaming blob writes? would be cool!
 // TODO: maybe this function should manage setting a unique name, instead of expecting
 // that from the caller. (and let filename not be unique)
-func SaveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) error {
-	query := "insert into upload (filename, content_type, contents) values (?, ?, ?)"
-	return sqlitex.Exec(conn, query, nil, filename, contentType, contents)
+func SaveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) (int64, error) {
+	query := "insert into upload (filename, created_at, content_type, contents) values (?, ?, ?, ?)"
+	err := sqlitex.Exec(conn, query, nil, filename, utcNow().Unix(), contentType, contents)
+	if err != nil {
+		return 0, err
+	}
+	return conn.LastInsertRowID(), err
 }
 
-func OpenUploadContents(conn *sqlite.Conn, filename string) (io.Reader, error) {
-	query := "select upload_id from upload where filename = ? limit 1"
-	var uploadID int
+func OpenUploadContents(conn *sqlite.Conn, uploadID int64) (blob io.Reader, contentType string, err error) {
+	query := "select content_type from upload where upload_id = ? limit 1"
 	collect := func(stmt *sqlite.Stmt) error {
-		uploadID = stmt.ColumnInt(0)
+		contentType = stmt.ColumnText(0)
 		return nil
 	}
-	if err := sqlitex.Exec(conn, query, collect, filename); err != nil {
-		return nil, err
+	if err := sqlitex.Exec(conn, query, collect, uploadID); err != nil {
+		return nil, "", err
 	}
-	return conn.OpenBlob("", "upload", "contents", int64(uploadID), false)
+	blob, err = conn.OpenBlob("", "upload", "contents", uploadID, false)
+	return blob, contentType, err
 }

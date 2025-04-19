@@ -4,14 +4,20 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -64,8 +70,8 @@ var userCtxKey = userCtxKeyType{}
 // Adds the requesting user (if they're logged in) to the request context
 func (app *App) withUserContextMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn := app.db.Get(r.Context())
-		defer app.db.Put(conn)
+		conn := app.db.GetReadOnly(r.Context())
+		defer app.db.PutReadOnly(conn)
 		user, err := entropy.GetUserIfLoggedIn(conn, r)
 		if err != nil {
 			errorResponse(w, err)
@@ -111,8 +117,8 @@ func defaultBefore() time.Time {
 }
 
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
-	conn := app.db.Get(r.Context())
-	defer app.db.Put(conn)
+	conn := app.db.GetReadOnly(r.Context())
+	defer app.db.PutReadOnly(conn)
 	before := defaultBefore()
 	beforeRaw := r.URL.Query().Get("before")
 	var err error
@@ -195,8 +201,8 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 }
 
 func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
-	conn := app.db.Get(r.Context())
-	defer app.db.Put(conn)
+	conn := app.db.GetReadOnly(r.Context())
+	defer app.db.PutReadOnly(conn)
 
 	postingUserName := r.PathValue("username")
 	postingUser, err := entropy.GetUserByName(conn, postingUserName)
@@ -530,6 +536,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		redirectToLogin(w, r)
 		return
 	}
+	// TODO: parse body with 1MB upload limit
 	if err := r.ParseForm(); err != nil {
 		badRequest(w, err)
 		return
@@ -540,28 +547,94 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	page.Form.DisplayName = user.DisplayName
 	page.Form.Bio = user.Bio
 	page.CSRFField = csrf.TemplateField(r)
-
 	if v := r.PostForm.Get("display_name"); v != "" {
 		page.Form.DisplayName = v
 	}
 	if v := r.PostForm.Get("bio"); v != "" {
 		page.Form.Bio = v
 	}
-
 	if r.Method == http.MethodGet {
 		app.RenderTemplate(w, "user_profile.html", page)
 		return
 	}
+	// TODO: validate avatar upload (must be .png)
 	if page.Form.Validate(); len(page.Form.Errors) > 0 {
 		app.RenderTemplate(w, "user_profile.html", page)
 		return
 	}
-	err := entropy.UpdateUserProfile(conn, user.Name, page.Form.DisplayName, page.Form.Bio)
+	var uploadID int64
+	file, header, err := r.FormFile("avatar")
+	if errors.Is(err, http.ErrMissingFile) {
+		uploadID = 0
+	} else if err != nil {
+		badRequest(w, err)
+		return
+	} else {
+		if uploadID, err = saveUpload(conn, file, header); err != nil {
+			errorResponse(w, err)
+			return
+		}
+	}
+	err = entropy.UpdateUserProfile(conn, user.Name, page.Form.DisplayName, page.Form.Bio, uploadID)
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func saveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHeader) (int64, error) {
+	contents, err := io.ReadAll(file)
+	if err != nil {
+		return 0, err
+	}
+	contentTypes := header.Header["Content-Type"]
+	if len(contentTypes) != 1 {
+		// TODO: make this a 400?
+		return 0, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
+	}
+	contentType := contentTypes[0]
+	stem, err := randomHex()
+	if err != nil {
+		return 0, err
+	}
+	exts, err := mime.ExtensionsByType(contentType)
+	if err != nil {
+		return 0, err
+	}
+	filename := stem + exts[0]
+	return entropy.SaveUpload(conn, filename, contentType, contents)
+}
+
+func randomHex() (string, error) {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Should probably just panic, tbh
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.GetReadOnly(r.Context())
+	defer app.db.PutReadOnly(conn)
+	parts := strings.SplitN(r.PathValue("upload_id"), ".", 2)
+	if len(parts) != 2 || strings.ToLower(parts[1]) != "png" {
+		http.NotFound(w, r)
+		return
+	}
+	uploadID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	blob, contentType, err := entropy.OpenUploadContents(conn, int64(uploadID))
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	io.Copy(w, blob)
 }
 
 func main() {
@@ -582,15 +655,11 @@ func main() {
 		log.Fatal("--secret-key must be 32 bytes")
 	}
 
-	dbpool, err := sqlitex.Open("test.db", 0, 10)
+	db, err := entropy.NewDB("test.db", 10)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer dbpool.Close()
-	db, err := entropy.NewDB(dbpool)
-	if err != nil {
-		log.Fatal(err)
-	}
+	defer db.Close()
 	app := NewApp(db)
 
 	mux := http.NewServeMux()
@@ -614,6 +683,8 @@ func main() {
 	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
 	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)
 	mux.HandleFunc("POST /u/{username}/unfollow", app.UnfollowUser)
+
+	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
 	server := csrfProtect(app.withUserContextMiddleware(mux))

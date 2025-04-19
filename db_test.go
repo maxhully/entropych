@@ -5,16 +5,11 @@ import (
 	"io"
 	"testing"
 
-	"crawshaw.io/sqlite/sqlitex"
 	"github.com/stretchr/testify/assert"
 )
 
 func setUpTestDB(t *testing.T) *DB {
-	dbpool, err := sqlitex.Open("file::memory:?mode=memory", 0, 1)
-	if err != nil {
-		t.Fatalf("could not open pool: %v", err)
-	}
-	db, err := NewDB(dbpool)
+	db, err := NewDB("file::memory:?mode=memory", 1)
 	if err != nil {
 		t.Fatalf("NewDB error: %v", err)
 	}
@@ -156,11 +151,13 @@ func TestUploads(t *testing.T) {
 	conn := db.Get(context.TODO())
 	defer db.Put(conn)
 
-	err := SaveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
+	uploadID, err := SaveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
 	assert.Nil(t, err)
+	assert.Greater(t, uploadID, int64(0))
 
-	blob, err := OpenUploadContents(conn, "hello.txt")
+	blob, contentType, err := OpenUploadContents(conn, uploadID)
 	assert.Nil(t, err)
+	assert.Equal(t, contentType, "text/plain")
 	contents, err := io.ReadAll(blob)
 	assert.Nil(t, err)
 	assert.Equal(t, string(contents), "hello, world!")

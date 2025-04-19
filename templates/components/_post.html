@@ -1,6 +1,6 @@
 {{define "post"}}
 <li class="post">
-    <img class="post__avatar" src="/static/Prospero_and_miranda.jpg">
+    <img class="post__avatar" src="{{.UserAvatarURL}}">
     <div>
         <div class="post__header">
             {{if ne .UserDisplayName .UserName}}

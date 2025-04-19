@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
 	"github.com/maxhully/entropy"
 )
 
@@ -142,15 +141,11 @@ func main() {
 	defer resp.Body.Close()
 	lines, errChan := streamDialogueLines(resp.Body, fromLine)
 
-	dbpool, err := sqlitex.Open(dbFilename, 0, 10)
+	db, err := entropy.NewDB(dbFilename, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer dbpool.Close()
-	db, err := entropy.NewDB(dbpool)
-	if err != nil {
-		log.Fatal(err)
-	}
+	defer db.Close()
 	conn := db.Get(context.Background())
 	defer db.Put(conn)
 

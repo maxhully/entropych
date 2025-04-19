@@ -129,19 +129,15 @@ func sparseMatrixPowers(graph *followerGraph, maxDepth int) {
 }
 
 func main() {
-	dbpool, err := sqlitex.Open("test.db", 0, 10)
+	db, err := entropy.NewDB("test.db", 10)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer dbpool.Close()
-	db, err := entropy.NewDB(dbpool)
-	if err != nil {
-		log.Fatal(err)
-	}
-	conn := db.Get(context.Background())
-	defer db.Put(conn)
+	defer db.Close()
 
+	conn := db.GetReadOnly(context.Background())
 	graph, err := loadFollowerGraph(conn)
+	defer db.PutReadOnly(conn)
 	if err != nil {
 		log.Fatal(err)
 	}

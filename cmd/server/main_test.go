@@ -10,16 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"crawshaw.io/sqlite/sqlitex"
 	"github.com/maxhully/entropy"
 )
 
 func setUpTestApp() (*App, error) {
-	dbpool, err := sqlitex.Open("file::memory:?mode=memory", 0, 1)
-	if err != nil {
-		return nil, err
-	}
-	db, err := entropy.NewDB(dbpool)
+	db, err := entropy.NewDB("file::memory:?mode=memory", 1)
 	if err != nil {
 		return nil, err
 	}
@@ -153,4 +148,8 @@ func TestLogInUser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateProfile(t *testing.T) {
+
 }
