@@ -37,10 +37,6 @@ button {
     margin-bottom: 0.5rem;
 }
 
-.post__content {
-    font-size: 1.25rem;
-}
-
 .post {
     display: flex;
 }

@@ -277,7 +277,7 @@ func GetRecentPostsFromFollowedUsers(conn *sqlite.Conn, userID int64, before tim
 			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
 			Content:         stmt.ColumnText(5),
 		}
-		fmt.Printf("followed post: %v\n", post)
+		// fmt.Printf("followed post: %v\n", post)
 		posts = append(posts, post)
 		return nil
 	}
@@ -316,7 +316,7 @@ func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time,
 			CreatedAt:       time.Unix(stmt.ColumnInt64(4), 0).UTC(),
 			Content:         stmt.ColumnText(5),
 		}
-		fmt.Printf("rando post: %v\n", post)
+		// fmt.Printf("rando post: %v\n", post)
 		posts = append(posts, post)
 		return nil
 	}

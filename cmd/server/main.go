@@ -10,10 +10,8 @@ import (
 	"html/template"
 	"io"
 	"log"
-	mathrand "math/rand"
 	"net/http"
 	"net/url"
-	"sort"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -112,51 +110,6 @@ func defaultBefore() time.Time {
 	return time.Now().UTC().Add(time.Hour)
 }
 
-// Get recommended posts, based on the ENTROPYCH, INC. CHAOS RECOMMENDATION ALGORITHM
-func getRecommendedPosts(conn *sqlite.Conn, user *entropy.User, before time.Time, limit int) ([]entropy.Post, error) {
-	if user == nil {
-		return entropy.GetRecentPosts(conn, before, limit)
-	}
-	var posts []entropy.Post
-	followedPosts, err := entropy.GetRecentPostsFromFollowedUsers(conn, user.UserID, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	chaosPosts, err := entropy.GetRecentPostsFromRandos(conn, user.UserID, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	posts = make([]entropy.Post, 0, limit)
-	for range limit {
-		if len(followedPosts) == 0 && len(chaosPosts) == 0 {
-			break
-		}
-		var takeFollow bool
-		if len(followedPosts) == 0 {
-			takeFollow = false
-		} else if len(chaosPosts) == 0 {
-			takeFollow = true
-		} else {
-			takeFollow = mathrand.Float32() > 0.4
-		}
-		if takeFollow {
-			posts = append(posts, followedPosts[0])
-			followedPosts = followedPosts[1:]
-		} else {
-			posts = append(posts, chaosPosts[0])
-			chaosPosts = chaosPosts[1:]
-		}
-	}
-	sort.Slice(posts, func(i, j int) bool {
-		return posts[i].CreatedAt.After(posts[j].CreatedAt)
-	})
-	err = entropy.DistortPostsForUser(conn, user, posts)
-	if err != nil {
-		return nil, err
-	}
-	return posts, err
-}
-
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -171,7 +124,7 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	user := getCurrentUser(r.Context())
-	posts, err := getRecommendedPosts(conn, user, before, 50)
+	posts, err := entropy.GetRecommendedPosts(conn, user, before, 50)
 	if err != nil {
 		errorResponse(w, err)
 		return
