@@ -28,13 +28,11 @@ create table if not exists post (
 create index if not exists post_user_id_idx on post (user_id);
 create index if not exists post_created_at_idx on post (created_at);
 
-/*
 create table if not exists post_reply (
     post_id integer references post(post_id),
     reply_post_id integer references post(post_id),
     primary key (post_id, reply_post_id)
 );
-*/
 
 create table if not exists reaction (
     post_id integer not null,

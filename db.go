@@ -434,6 +434,20 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) 
 	return postID, err
 }
 
+func ReplyToPost(conn *sqlite.Conn, postID int64, userID int64, content string) (int64, error) {
+	var err error
+	defer sqlitex.Save(conn)(&err)
+	postReplyID, err := CreatePost(conn, userID, content)
+	if err != nil {
+		return 0, err
+	}
+	query := "insert into post_reply (post_id, post_reply_id) values (?, ?)"
+	if err = sqlitex.Exec(conn, query, nil, postID, postReplyID); err != nil {
+		return 0, err
+	}
+	return postReplyID, err
+}
+
 func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji string) (bool, error) {
 	query := "select 1 from post where post_id = ?"
 	exists := false

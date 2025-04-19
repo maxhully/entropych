@@ -549,15 +549,19 @@ func (f *updateProfileForm) Validate() {
 }
 
 func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	var err error
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
+	// Save so that if the update fails we don't create the upload
+	defer sqlitex.Save(conn)(&err)
+
 	user := getCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
 	}
 	// TODO: parse body with 1MB upload limit
-	if err := r.ParseForm(); err != nil {
+	if err = r.ParseForm(); err != nil {
 		badRequest(w, err)
 		return
 	}
