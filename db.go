@@ -444,7 +444,6 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 	if err := sqlitex.Exec(conn, query, collect, postID); err != nil {
 		return false, err
 	}
-	fmt.Printf("exists: %v\n", exists)
 	if !exists {
 		return false, nil
 	}
