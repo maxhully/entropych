@@ -20,13 +20,13 @@
 <p>
     Following!
 <form method="post" action="{{.PostingUser.URL}}unfollow">
-    {{.CSRFField}}
+    {{csrf_field}}
     <button>Unfollow</button>
 </form>
 </p>
 {{else}}
 <form method="post" action="{{.PostingUser.URL}}follow">
-    {{.CSRFField}}
+    {{csrf_field}}
     <button>Follow</button>
 </form>
 {{end}}

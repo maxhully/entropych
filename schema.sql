@@ -36,6 +36,14 @@ create table if not exists post_reply (
 );
 */
 
+create table if not exists reaction (
+    post_id integer not null,
+    user_id integer not null,
+    reacted_at integer not null,
+    emoji text not null,
+    primary key (post_id, user_id)
+);
+
 create table if not exists user_session (
     user_session_id integer primary key,
     user_id integer references user(user_id),

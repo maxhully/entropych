@@ -10,7 +10,7 @@
 <h1>{{.User.Name}}</h1>
 
 <form method="post" enctype="multipart/form-data">
-    {{.CSRFField}}
+    {{csrf_field}}
     {{template "form_errors" .Form.Errors}}
     <div>
         <label>

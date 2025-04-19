@@ -4,7 +4,7 @@
 {{template "form_errors" .Errors}}
 
 <form method="post" action="/login">
-    {{.CSRFField}}
+    {{csrf_field}}
     <div>
         <label>
             Username:

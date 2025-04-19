@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/gorilla/csrf"
 	"github.com/oxtoacart/bpool"
 )
 
@@ -22,20 +23,26 @@ type Renderer struct {
 	bufpool          *bpool.BufferPool
 }
 
-func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, name string, data any) error {
+func dummyCSRFField() template.HTML {
+	return template.HTML("")
+}
+
+func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, req *http.Request, name string, data any) error {
 	// We render to a buffer (from the buffer pool) so that we can handle template
 	// execution errors (without sending half a template response first).
 	t := r.templates[name]
 	if t == nil {
 		return fmt.Errorf("ExecuteTemplate: template not found: %v; templates=%+v", name, r.templates)
 	}
+	tclone := template.Must(t.Clone())
+	csrfField := csrf.TemplateField(req)
+	tclone.Funcs(template.FuncMap{"csrf_field": func() template.HTML { return csrfField }})
+
 	buf := r.bufpool.Get()
 	defer r.bufpool.Put(buf)
-	err := t.ExecuteTemplate(w, r.baseTemplateName, data)
-	if err != nil {
+	if err := tclone.ExecuteTemplate(w, r.baseTemplateName, data); err != nil {
 		return err
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	buf.WriteTo(w)
 	return nil
 }
@@ -61,7 +68,10 @@ func NewRenderer() (*Renderer, error) {
 	//
 	// We include the helpers in templates/components/ too, so that everything defined
 	// there is usable in the child templates.
-	baseTemplate := template.Must(template.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
+	baseTemplate := template.New("")
+	baseTemplate.Funcs(template.FuncMap{"csrf_field": dummyCSRFField})
+	template.Must(baseTemplate.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
+	// We override this func at execution time
 	for _, path := range paths {
 		name := filepath.Base(path)
 		t := template.Must(baseTemplate.Clone())

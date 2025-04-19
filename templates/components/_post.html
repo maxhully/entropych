@@ -1,19 +1,26 @@
 {{define "post"}}
 <li class="post">
-    <img class="post__avatar" src="{{.UserAvatarURL}}">
-    <div>
-        <div class="post__header">
-            {{if ne .UserDisplayName .UserName}}
-            <a href="{{.UserURL}}">{{.UserDisplayName}} [{{.UserName}}]</a>
-            {{else}}
-            <a href="{{.UserURL}}">{{.UserName}}</a>
-            {{end}}
-            <time class="post__time"
-                title="{{.CreatedAt}}">{{.CreatedAt.Format "Jan 02 2006"}}</time>
-        </div>
-        <div class="post__content">
-            {{.Content}}
+    <div class="post__main">
+        <img class="post__avatar" src="{{.UserAvatarURL}}">
+        <div>
+            <div class="post__header">
+                {{if ne .UserDisplayName .UserName}}
+                <a href="{{.UserURL}}">{{.UserDisplayName}} [{{.UserName}}]</a>
+                {{else}}
+                <a href="{{.UserURL}}">{{.UserName}}</a>
+                {{end}}
+                <time class="post__time"
+                    title="{{.CreatedAt}}">{{.CreatedAt.Format "Jan 02 2006"}}</time>
+            </div>
+            <div class="post__content">
+                {{.Content}}
+            </div>
         </div>
     </div>
+    <!-- TODO: will probably need some JS to make sure pagination works right here -->
+    <form method="post" action="/p/{{.PostID}}/reaction" class="post__reactions">
+        {{csrf_field}}
+        <button>❤️</button>
+    </form>
 </li>
 {{end}}

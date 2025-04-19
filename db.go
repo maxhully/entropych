@@ -428,6 +428,31 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) 
 	return postID, err
 }
 
+func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji string) (bool, error) {
+	// TODO: do a query first to check if the post exists
+	query := `
+		insert into reaction (post_id, user_id, reacted_at, emoji)
+		values (:postID, :userID, :reactedAt, :emoji)
+		on conflict do nothing`
+	rows := 0
+	collect := func(stmt *sqlite.Stmt) error {
+		rows++
+		return nil
+	}
+	err := exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetInt64(":postID", postID)
+		stmt.SetInt64(":userID", userID)
+		stmt.SetText(":emoji", emoji)
+		stmt.SetInt64(":reactedAt", utcNow().Unix())
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	// TODO: actually return whether it was found
+	return true, err
+}
+
 func CreateUser(conn *sqlite.Conn, name string, password string) (*User, error) {
 	hashAndSalt, err := HashAndSaltPassword([]byte(password))
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"mime"
@@ -95,8 +94,8 @@ func getCurrentUser(ctx context.Context) *entropy.User {
 	return user
 }
 
-func (app *App) RenderTemplate(w http.ResponseWriter, name string, data any) {
-	err := app.renderer.ExecuteTemplate(w, name, data)
+func (app *App) RenderTemplate(w http.ResponseWriter, r *http.Request, name string, data any) {
+	err := app.renderer.ExecuteTemplate(w, r, name, data)
 	if err != nil {
 		errorResponse(w, err)
 	}
@@ -106,7 +105,6 @@ type homepage struct {
 	User        *entropy.User
 	Posts       []entropy.Post
 	NextPageURL string
-	CSRFField   template.HTML
 }
 
 const timeQueryParamLayout = "20060102T150405"
@@ -136,19 +134,18 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := &homepage{
-		User:      user,
-		Posts:     posts,
-		CSRFField: csrf.TemplateField(r),
+		User:  user,
+		Posts: posts,
 	}
 	if len(posts) > 0 {
 		lastPostCreatedAt := posts[len(posts)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
 		page.NextPageURL = fmt.Sprintf("/?before=%s", url.QueryEscape(lastPostCreatedAt))
 	}
-	app.RenderTemplate(w, "index.html", page)
+	app.RenderTemplate(w, r, "index.html", page)
 }
 
 func (app *App) About(w http.ResponseWriter, r *http.Request) {
-	app.RenderTemplate(w, "about.html", nil)
+	app.RenderTemplate(w, r, "about.html", nil)
 }
 
 type userPostsPage struct {
@@ -158,7 +155,6 @@ type userPostsPage struct {
 	IsFollowingPostingUser bool
 	PostingUserFollowStats *entropy.UserFollowStats
 	DistanceFromUser       int
-	CSRFField              template.HTML
 }
 
 func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entropy.User) (*userPostsPage, error) {
@@ -220,14 +216,12 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	page.CSRFField = csrf.TemplateField(r)
-	app.RenderTemplate(w, "user_posts.html", page)
+	app.RenderTemplate(w, r, "user_posts.html", page)
 }
 
 type nameAndPasswordForm struct {
-	Name      string
-	Password  string
-	CSRFField template.HTML
+	Name     string
+	Password string
 	// rename to Problems?
 	Errors map[string]string
 }
@@ -247,10 +241,9 @@ type SignUpForm struct {
 	nameAndPasswordForm
 }
 
-func newSignUpForm(r *http.Request) *SignUpForm {
+func newSignUpForm() *SignUpForm {
 	return &SignUpForm{nameAndPasswordForm{
-		CSRFField: csrf.TemplateField(r),
-		Errors:    make(map[string]string),
+		Errors: make(map[string]string),
 	}}
 }
 
@@ -285,9 +278,9 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	form := newSignUpForm(r)
+	form := newSignUpForm()
 	if r.Method != http.MethodPost {
-		app.RenderTemplate(w, "signup.html", form)
+		app.RenderTemplate(w, r, "signup.html", form)
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
@@ -299,7 +292,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(form.Errors) > 0 {
-		app.RenderTemplate(w, "signup.html", form)
+		app.RenderTemplate(w, r, "signup.html", form)
 		return
 	}
 
@@ -366,10 +359,9 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 	return user, nil
 }
 
-func newLogInForm(r *http.Request) LogInForm {
+func newLogInForm() LogInForm {
 	return LogInForm{nameAndPasswordForm{
-		CSRFField: csrf.TemplateField(r),
-		Errors:    make(map[string]string),
+		Errors: make(map[string]string),
 	}}
 }
 
@@ -377,9 +369,9 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	form := newLogInForm(r)
+	form := newLogInForm()
 	if r.Method != http.MethodPost {
-		app.RenderTemplate(w, "login.html", form)
+		app.RenderTemplate(w, r, "login.html", form)
 		return
 	}
 	if err := form.ParseFromBody(r); err != nil {
@@ -393,7 +385,7 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		app.RenderTemplate(w, "login.html", form)
+		app.RenderTemplate(w, r, "login.html", form)
 		return
 	}
 
@@ -440,6 +432,31 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	_, err := entropy.CreatePost(conn, user.UserID, content)
 	if err != nil {
 		errorResponse(w, err)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
+	user := getCurrentUser(r.Context())
+	if user == nil {
+		redirectToLogin(w, r)
+		return
+	}
+	postID, err := strconv.Atoi(r.PathValue("post_id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	foundPost, err := entropy.ReactToPostIfExists(conn, user.UserID, int64(postID), "❤️")
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if !foundPost {
+		http.NotFound(w, r)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -514,9 +531,8 @@ type updateProfileForm struct {
 }
 
 type updateProfilePage struct {
-	Form      updateProfileForm
-	User      *entropy.User
-	CSRFField template.HTML
+	Form updateProfileForm
+	User *entropy.User
 }
 
 func (f *updateProfileForm) Validate() {
@@ -546,7 +562,6 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	page.Form.Errors = make(map[string]string)
 	page.Form.DisplayName = user.DisplayName
 	page.Form.Bio = user.Bio
-	page.CSRFField = csrf.TemplateField(r)
 	if v := r.PostForm.Get("display_name"); v != "" {
 		page.Form.DisplayName = v
 	}
@@ -554,12 +569,12 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		page.Form.Bio = v
 	}
 	if r.Method == http.MethodGet {
-		app.RenderTemplate(w, "user_profile.html", page)
+		app.RenderTemplate(w, r, "user_profile.html", page)
 		return
 	}
 	// TODO: validate avatar upload (must be .png)
 	if page.Form.Validate(); len(page.Form.Errors) > 0 {
-		app.RenderTemplate(w, "user_profile.html", page)
+		app.RenderTemplate(w, r, "user_profile.html", page)
 		return
 	}
 	var uploadID int64
@@ -681,6 +696,7 @@ func main() {
 	mux.HandleFunc("POST /profile", app.UpdateProfile)
 
 	mux.HandleFunc("POST /posts/new", app.NewPost)
+	mux.HandleFunc("POST /p/{post_id}/reaction", app.ReactToPost)
 
 	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
 	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)
