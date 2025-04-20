@@ -158,8 +158,9 @@ func userURL(userName string) string {
 }
 
 type PostReactionCount struct {
-	Emoji string
-	Count int
+	Emoji       string
+	Count       int
+	UserReacted bool
 }
 
 type Post struct {
@@ -408,6 +409,24 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 	return posts, err
 }
 
+func GetPost(conn *sqlite.Conn, postID int64) (*Post, error) {
+	var posts []Post
+	query := `
+		select
+			post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
+		from post
+		join user using (user_id)
+		where post_id = ?`
+	err := sqlitex.Exec(conn, query, collectPosts(&posts), postID)
+	return &posts[0], err
+}
+
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
 	query := "select user_id, user_name, display_name, bio from user where user_name = ? limit 1"
@@ -478,11 +497,43 @@ func ReactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64, emoji st
 	return exists, err
 }
 
-// Sets the Reactions field on each post in the given slice
-func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post) error {
+func UnreactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64) (bool, error) {
+	// Do we even care if it exists?
+	query := "select 1 from post where post_id = ?"
+	exists := false
+	collect := func(stmt *sqlite.Stmt) error {
+		exists = true
+		return nil
+	}
+	if err := sqlitex.Exec(conn, query, collect, postID); err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	query = "delete from reaction where post_id = :postID and user_id = :userID"
+	err := exec(conn, query, nil, func(stmt *sqlite.Stmt) error {
+		stmt.SetInt64(":postID", postID)
+		stmt.SetInt64(":userID", userID)
+		return nil
+	})
+	if err != nil {
+		return exists, err
+	}
+	return exists, err
+}
+
+// Sets the Reactions field on each post in the given slice.
+func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post, loggedInUserID int64) error {
 	query := `
 		select
-			post_id, emoji, count(*) as count
+			post_id,
+			emoji,
+			count(*) as count,
+			case
+				when :loggedInUserID = 0 then 0
+				else sum(case when user_id = :loggedInUserID then 1 else 0 end)
+			end as user_reacted
 		from reaction
 		where post_id in (select value from json_each(:postIDsJSON))
 		group by post_id, emoji
@@ -500,13 +551,16 @@ func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post) error {
 	collect := func(stmt *sqlite.Stmt) error {
 		postID := stmt.ColumnInt64(0)
 		postsByID[postID].Reactions = append(postsByID[postID].Reactions, PostReactionCount{
-			Emoji: stmt.ColumnText(1),
-			Count: stmt.ColumnInt(2),
+			Emoji:       stmt.ColumnText(1),
+			Count:       stmt.ColumnInt(2),
+			UserReacted: stmt.ColumnInt(3) > 0,
 		})
+		fmt.Printf("stmt: %v\n", stmt)
 		return nil
 	}
 	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
 		stmt.SetText(":postIDsJSON", string(postIDsJSON))
+		stmt.SetInt64(":loggedInUserID", loggedInUserID)
 		return nil
 	})
 }

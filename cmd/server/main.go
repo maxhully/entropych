@@ -180,7 +180,7 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 	if err != nil {
 		return nil, err
 	}
-	if err = entropy.GetReactionCountsForPosts(conn, posts); err != nil {
+	if err = entropy.GetReactionCountsForPosts(conn, posts, user.UserID); err != nil {
 		return nil, err
 	}
 	if err = entropy.DistortPostsForUser(conn, user, posts); err != nil {
@@ -441,6 +441,24 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
+	postID, err := strconv.Atoi(r.PathValue("post_id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// TODO: maybe this should reuse getUserPostsPage somehow?
+	post, err := entropy.GetPost(conn, int64(postID))
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	// TODO: this template
+	app.RenderTemplate(w, r, "show_post.html", post)
+}
+
 func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -455,6 +473,31 @@ func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	foundPost, err := entropy.ReactToPostIfExists(conn, user.UserID, int64(postID), "❤️")
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if !foundPost {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (app *App) UnreactToPost(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
+	user := getCurrentUser(r.Context())
+	if user == nil {
+		redirectToLogin(w, r)
+		return
+	}
+	postID, err := strconv.Atoi(r.PathValue("post_id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	foundPost, err := entropy.UnreactToPostIfExists(conn, user.UserID, int64(postID))
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -705,7 +748,9 @@ func main() {
 	mux.HandleFunc("POST /profile", app.UpdateProfile)
 
 	mux.HandleFunc("POST /posts/new", app.NewPost)
-	mux.HandleFunc("POST /p/{post_id}/reaction", app.ReactToPost)
+	mux.HandleFunc("GET /p/{post_id}", app.ShowPost)
+	mux.HandleFunc("POST /p/{post_id}/react", app.ReactToPost)
+	mux.HandleFunc("POST /p/{post_id}/unreact", app.UnreactToPost)
 
 	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
 	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)

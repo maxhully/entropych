@@ -8,11 +8,7 @@ import (
 	"crawshaw.io/sqlite"
 )
 
-// Get recommended posts, based on the ENTROPYCH, INC. CHAOS RECOMMENDATION ALGORITHM
-func GetRecommendedPosts(conn *sqlite.Conn, user *User, before time.Time, limit int) ([]Post, error) {
-	if user == nil {
-		return GetRecentPosts(conn, before, limit)
-	}
+func getPostsForLoggedInUser(conn *sqlite.Conn, user *User, before time.Time, limit int) ([]Post, error) {
 	var posts []Post
 	followedPosts, err := GetRecentPostsFromFollowedUsers(conn, user.UserID, before, limit)
 	if err != nil {
@@ -43,12 +39,31 @@ func GetRecommendedPosts(conn *sqlite.Conn, user *User, before time.Time, limit 
 			chaosPosts = chaosPosts[1:]
 		}
 	}
-	if err := GetReactionCountsForPosts(conn, posts); err != nil {
-		return nil, err
-	}
 	sort.Slice(posts, func(i, j int) bool {
 		return posts[i].CreatedAt.After(posts[j].CreatedAt)
 	})
+	return posts, nil
+}
+
+// Get recommended posts, based on the ENTROPYCH, INC. CHAOS RECOMMENDATION ALGORITHM
+func GetRecommendedPosts(conn *sqlite.Conn, user *User, before time.Time, limit int) ([]Post, error) {
+	var posts []Post
+	var err error
+	if user == nil {
+		posts, err = GetRecentPosts(conn, before, limit)
+	} else {
+		posts, err = getPostsForLoggedInUser(conn, user, before, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var userID int64
+	if user != nil {
+		userID = user.UserID
+	}
+	if err := GetReactionCountsForPosts(conn, posts, userID); err != nil {
+		return nil, err
+	}
 	if err := DistortPostsForUser(conn, user, posts); err != nil {
 		return nil, err
 	}

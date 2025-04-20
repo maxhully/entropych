@@ -20,15 +20,27 @@
     <!-- TODO: will need some JS to make sure pagination works right here -->
     {{if .Reactions}}
     {{range $reaction := .Reactions}}
-    <form method="post" action="/p/{{$.PostID}}/reaction" class="post__reactions">
+    {{if $reaction.UserReacted}}
+    <form method="post" action="/p/{{$.PostID}}/unreact" class="post__reactions">
         {{csrf_field}}
-        <button>{{$reaction.Emoji}} {{$reaction.Count}}</button>
+        <button class="post__react post__react--reacted">
+            {{$reaction.Emoji}}
+            {{$reaction.Count}}
+        </button>
+    </form>
+    {{else}}
+    <form method="post" action="/p/{{$.PostID}}/react" class="post__reactions">
+        {{csrf_field}}
+        <button class="post__react">
+            {{$reaction.Emoji}} {{$reaction.Count}}
+        </button>
     </form>
     {{end}}
+    {{end}}
     {{else}}
-    <form method="post" action="/p/{{.PostID}}/reaction" class="post__reactions">
+    <form method="post" action="/p/{{.PostID}}/react" class="post__reactions">
         {{csrf_field}}
-        <button>❤️</button>
+        <button class="post__react">❤️</button>
     </form>
     {{end}}
 </li>

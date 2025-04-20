@@ -70,6 +70,12 @@ button {
     object-fit: cover;
 }
 
+.post__react--reacted {
+    /* Not sure about this */
+    font-weight: bold;
+    box-shadow: 0 0 0 0.25rem pink;
+}
+
 .header {
     display: flex;
     align-items: center;
