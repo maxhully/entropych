@@ -161,30 +161,26 @@ type userPostsPage struct {
 
 func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entropy.User) (*userPostsPage, error) {
 	isFollowing := false
-	distanceFromUser := 0
+	distanceFromUser := entropy.MaxDistortionLevel
 	var err error
 	if user != nil && postingUser.UserID != user.UserID {
-		// TODO: I could consolidate these queries
-		isFollowing, err = entropy.IsFollowing(conn, user.UserID, postingUser.UserID)
-		if err != nil {
-			return nil, err
-		}
-		// Maybe just debug info
 		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
 		if err != nil {
 			return nil, err
 		}
 		distanceFromUser = distances[postingUser.UserID]
+		isFollowing = distances[postingUser.UserID] == 1
 	}
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
 	if err != nil {
 		return nil, err
 	}
-	if err = entropy.GetReactionCountsForPosts(conn, posts, user.UserID); err != nil {
+	if err = entropy.GetReactionCountsForPosts(conn, user, posts); err != nil {
 		return nil, err
 	}
-	if err = entropy.DistortPostsForUser(conn, user, posts); err != nil {
-		return nil, err
+	for i := range posts {
+		posts[i].Content = entropy.DistortContent(posts[i].Content, distanceFromUser)
+		posts[i].DistanceFromUser = distanceFromUser
 	}
 	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
 	if err != nil {
@@ -334,7 +330,7 @@ func checkLogInForm(conn *sqlite.Conn, form *LogInForm) (*entropy.User, error) {
 		user = &entropy.User{
 			UserID: stmt.ColumnInt64(0),
 			Name:   stmt.ColumnText(1),
-			// Omitting DisplayName and Bio because we don't need them here
+			// Omitting DisplayName, Bio, and AvatarUploadID because we don't need them here
 		}
 		if hashAndSalt.Salt, err = io.ReadAll(stmt.ColumnReader(2)); err != nil {
 			return err
@@ -628,8 +624,17 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, r, "user_profile.html", page)
 		return
 	}
+
+	defer r.MultipartForm.RemoveAll()
+	var file multipart.File
+	defer func() {
+		if file != nil {
+			file.Close()
+		}
+	}()
 	var uploadID int64
 	file, header, err := r.FormFile("avatar")
+
 	if errors.Is(err, http.ErrMissingFile) {
 		uploadID = 0
 	} else if err != nil {
@@ -649,6 +654,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// TODO: resizing...
 func saveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHeader) (int64, error) {
 	contents, err := io.ReadAll(file)
 	if err != nil {

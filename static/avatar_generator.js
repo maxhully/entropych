@@ -129,6 +129,7 @@ function drawAvatar(canvas) {
     ctx.fill();
 }
 
+// TODO: reset button
 class AvatarGen extends HTMLElement {
     connectedCallback() {
         this.addEventListener("click", (e) => {
@@ -136,15 +137,33 @@ class AvatarGen extends HTMLElement {
             this.generate();
             this.saveToFileInputIfPresent();
         });
-        this.generate();
-        this.saveToFileInputIfPresent();
+        // If we contain an <img> with the user's current avatar, don't generate
+        const initialImg = this.querySelector("img");
+        if (initialImg) {
+            const canvas = this.querySelector("canvas");
+            canvas.hidden = true;
+        } else {
+            this.generate();
+            this.saveToFileInputIfPresent();
+        }
+    }
+    hideImage() {
+        const img = this.querySelector("img");
+        if (img) {
+            img.hidden = true;
+        }
     }
     generate() {
         const canvas = this.querySelector("canvas");
         if (!canvas) {
             throw new Error("h-avatar-gen: couldn't find canvas");
         }
+        const img = this.querySelector("img");
+        if (img) {
+            img.hidden = true;
+        }
         drawAvatar(canvas);
+        canvas.hidden = false;
     }
     saveToFileInputIfPresent() {
         const canvas = this.querySelector("canvas");

@@ -142,7 +142,8 @@ type User struct {
 	Name        string
 	DisplayName string
 	// TODO: We don't always need the Bio. I think I should take it out of the User struct
-	Bio string
+	Bio            string
+	AvatarUploadID int64
 }
 
 func (u *User) Exists() bool {
@@ -151,6 +152,10 @@ func (u *User) Exists() bool {
 
 func (u *User) URL() string {
 	return userURL(u.Name)
+}
+
+func (u *User) AvatarURL() string {
+	return getUploadURL(u.AvatarUploadID)
 }
 
 func userURL(userName string) string {
@@ -168,21 +173,30 @@ type Post struct {
 	UserID             int64
 	UserName           string
 	UserDisplayName    string
-	UserAvatarUploadID int // TODO: I gotta store the filename instead
+	UserAvatarUploadID int64 // TODO: I gotta store the filename instead
 	CreatedAt          time.Time
 	Content            string
 	Reactions          []PostReactionCount
+	DistanceFromUser   int // whether the logged in user follows the author of this post
 }
 
 func (p *Post) UserURL() string {
 	return userURL(p.UserName)
 }
 
-func (p *Post) UserAvatarURL() string {
-	if p.UserAvatarUploadID == 0 {
+func getUploadURL(uploadID int64) string {
+	if uploadID == 0 {
 		return "/static/Prospero_and_miranda.jpg"
 	}
-	return fmt.Sprintf("/uploads/%d.png", p.UserAvatarUploadID)
+	return fmt.Sprintf("/uploads/%d.png", uploadID)
+}
+
+func (p *Post) UserAvatarURL() string {
+	return getUploadURL(p.UserAvatarUploadID)
+}
+
+func (p *Post) LoggedInUserIsFollowing() bool {
+	return p.DistanceFromUser == 1
 }
 
 type UserSession struct {
@@ -293,7 +307,7 @@ func collectPosts(posts *[]Post) func(stmt *sqlite.Stmt) error {
 			UserDisplayName:    stmt.ColumnText(3),
 			CreatedAt:          time.Unix(stmt.ColumnInt64(4), 0).UTC(),
 			Content:            stmt.ColumnText(5),
-			UserAvatarUploadID: stmt.ColumnInt(6),
+			UserAvatarUploadID: stmt.ColumnInt64(6),
 		}
 		// fmt.Printf("followed post: %v\n", post)
 		*posts = append(*posts, post)
@@ -429,13 +443,18 @@ func GetPost(conn *sqlite.Conn, postID int64) (*Post, error) {
 
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
-	query := "select user_id, user_name, display_name, bio from user where user_name = ? limit 1"
+	query := `
+		select user_id, user_name, display_name, bio, avatar_upload_id
+		from user
+		where user_name = ?
+		limit 1`
 	collect := func(stmt *sqlite.Stmt) error {
 		user = &User{
-			UserID:      stmt.ColumnInt64(0),
-			Name:        stmt.ColumnText(1),
-			DisplayName: stmt.ColumnText(2),
-			Bio:         stmt.ColumnText(3),
+			UserID:         stmt.ColumnInt64(0),
+			Name:           stmt.ColumnText(1),
+			DisplayName:    stmt.ColumnText(2),
+			Bio:            stmt.ColumnText(3),
+			AvatarUploadID: stmt.ColumnInt64(4),
 		}
 		return nil
 	}
@@ -524,15 +543,19 @@ func UnreactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64) (bool,
 }
 
 // Sets the Reactions field on each post in the given slice.
-func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post, loggedInUserID int64) error {
+func GetReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+	var userID int64
+	if user != nil {
+		userID = user.UserID
+	}
 	query := `
 		select
 			post_id,
 			emoji,
 			count(*) as count,
 			case
-				when :loggedInUserID = 0 then 0
-				else sum(case when user_id = :loggedInUserID then 1 else 0 end)
+				when :userID = 0 then 0
+				else sum(case when user_id = :userID then 1 else 0 end)
 			end as user_reacted
 		from reaction
 		where post_id in (select value from json_each(:postIDsJSON))
@@ -555,12 +578,11 @@ func GetReactionCountsForPosts(conn *sqlite.Conn, posts []Post, loggedInUserID i
 			Count:       stmt.ColumnInt(2),
 			UserReacted: stmt.ColumnInt(3) > 0,
 		})
-		fmt.Printf("stmt: %v\n", stmt)
 		return nil
 	}
 	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
 		stmt.SetText(":postIDsJSON", string(postIDsJSON))
-		stmt.SetInt64(":loggedInUserID", loggedInUserID)
+		stmt.SetInt64(":userID", userID)
 		return nil
 	})
 }
@@ -621,17 +643,18 @@ func CreateUserSession(conn *sqlite.Conn, userID int64) (*UserSession, error) {
 
 func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*User, error) {
 	query := `
-		select user_id, user.user_name, user.display_name, user.bio
+		select user_id, user.user_name, user.display_name, user.bio, user.avatar_upload_id
 		from user_session
 		join user using (user_id)
 		where session_public_id = ? and expiration_time > ?`
 	var user *User
 	collect := func(stmt *sqlite.Stmt) error {
 		user = &User{
-			UserID:      stmt.ColumnInt64(0),
-			Name:        stmt.ColumnText(1),
-			DisplayName: stmt.ColumnText(2),
-			Bio:         stmt.ColumnText(3),
+			UserID:         stmt.ColumnInt64(0),
+			Name:           stmt.ColumnText(1),
+			DisplayName:    stmt.ColumnText(2),
+			Bio:            stmt.ColumnText(3),
+			AvatarUploadID: stmt.ColumnInt64(4),
 		}
 		return nil
 	}
@@ -722,6 +745,7 @@ func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 		// Maybe just maximum? (5)
 		for i := range posts {
 			posts[i].Content = DistortContent(posts[i].Content, MaxDistortionLevel)
+			posts[i].DistanceFromUser = MaxDistortionLevel
 		}
 		return nil
 	}
@@ -747,6 +771,7 @@ func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 			continue
 		}
 		posts[i].Content = DistortContent(posts[i].Content, distances[posts[i].UserID])
+		posts[i].DistanceFromUser = distances[posts[i].UserID]
 	}
 	return nil
 }

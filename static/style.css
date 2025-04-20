@@ -55,6 +55,9 @@ button {
 
 .post__header {
     margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
 }
 
 .post__content {
