@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	mathrand "math/rand"
 	"net/http"
 	"path/filepath"
 
@@ -25,6 +26,37 @@ type Renderer struct {
 
 func dummyCSRFField() template.HTML {
 	return template.HTML("")
+}
+
+var ctas []string = []string{
+	"shout into the void",
+	"SHOUT INTO THE VOID",
+	"join the chaos",
+	"tell 'em what it is",
+	"what's up?",
+	"what up doe",
+	"say something",
+	"make some noise!!",
+	"say your piece",
+	"give your two cents",
+	"add to the conversation",
+	"join the discourse",
+	"add your voice",
+	"what's bothering you?",
+	"what's something you need to get off your chest?",
+	"what's on your mind?",
+	"anything on your mind?",
+	"got any ideas?",
+	"what do you think?",
+	"write a post",
+	"give it a go",
+	"everyone is talking about...",
+	"no one is talking about...",
+}
+
+func postCallToAction() string {
+	i := mathrand.Intn(len(ctas))
+	return ctas[i]
 }
 
 func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, req *http.Request, name string, data any) error {
@@ -69,7 +101,7 @@ func NewRenderer() (*Renderer, error) {
 	// We include the helpers in templates/components/ too, so that everything defined
 	// there is usable in the child templates.
 	baseTemplate := template.New("")
-	baseTemplate.Funcs(template.FuncMap{"csrf_field": dummyCSRFField})
+	baseTemplate.Funcs(template.FuncMap{"csrf_field": dummyCSRFField, "post_cta": postCallToAction})
 	template.Must(baseTemplate.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
 	// We override this func at execution time
 	for _, path := range paths {

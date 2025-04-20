@@ -19,7 +19,7 @@
 {{if .User}}
 <form method="post" action="/posts/new">
     {{csrf_field}}
-    <div><label for="content">shout into the void</label></div>
+    <div><label for="content">{{post_cta}}</label></div>
     <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
     <div><button>Post!</button></div>
 </form>
