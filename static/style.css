@@ -39,22 +39,19 @@ button {
     padding: 1rem;
     margin: 1rem 0;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    gap: 1rem;
     border: 2px solid black;
     box-shadow: 0.25rem 0.25rem 0 0 #aaa;
 }
 
 .post__main {
     display: flex;
-    gap: 1rem;
-}
-
-.post__reactions {
-    margin-left: auto;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
 .post__header {
-    margin-bottom: 1rem;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -71,6 +68,11 @@ button {
     width: 3rem;
     margin-right: 0.5rem;
     object-fit: cover;
+}
+
+.post__avatar--mobile {
+    height: 2rem;
+    width: 2rem;
 }
 
 .post__react--reacted {
@@ -90,3 +92,23 @@ button {
 }
 
 /* TODO: on mobile, have the avatar + header on top, with the content below */
+
+/* Non-mobile styles */
+@media only screen and (min-width: 600px) {
+    .mobile-only {
+        display: none !important;
+    }
+}
+
+/* Mobile styles */
+@media only screen and (max-width: 600px) {
+    .no-mobile {
+        display: none !important;
+    }
+    .post__header {
+        gap: 0.5rem;
+    }
+    .post {
+        padding: 0.75rem;
+    }
+}
