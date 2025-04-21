@@ -18,6 +18,7 @@
         </div>
     </div>
     <!-- TODO: will need some JS to make sure pagination works right here -->
+    <!-- might want to return an htmx-style partial response with the updated reaction counts -->
     {{if .Reactions}}
     {{range $reaction := .Reactions}}
     {{if $reaction.UserReacted}}
