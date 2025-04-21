@@ -52,6 +52,11 @@ var ctas []string = []string{
 	"give it a go",
 	"everyone is talking about...",
 	"no one is talking about...",
+	"tell me something I don't know:",
+	"what you got?",
+	"go off:",
+	"keep it real:",
+	"ADFOIJRTHOI%#MBOIADFMBIVJ",
 }
 
 func postCallToAction() string {
