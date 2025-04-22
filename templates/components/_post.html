@@ -4,10 +4,18 @@
     <div class="post__main">
         <div class="post__header">
             <img class="post__avatar post__avatar--mobile mobile-only" src="{{.UserAvatarURL}}">
+            {{if .ReplyingToPostID}}
+            ↪
+            {{end}}
             {{if ne .UserDisplayName .UserName}}
             <a href="{{.UserURL}}">{{.UserDisplayName}} [{{.UserName}}]</a>
             {{else}}
             <a href="{{.UserURL}}">{{.UserName}}</a>
+            {{end}}
+            {{if .ReplyingToPostID}}
+            <span>
+                replied to {{.ReplyingToPostUserName}}
+            </span>
             {{end}}
             <a href="{{.PostURL}}">
                 <time class="post__time no-mobile" title="{{.CreatedAt}}">

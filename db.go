@@ -169,15 +169,17 @@ type PostReactionCount struct {
 }
 
 type Post struct {
-	PostID             int64
-	UserID             int64
-	UserName           string
-	UserDisplayName    string
-	UserAvatarUploadID int64 // TODO: I gotta store the filename instead
-	CreatedAt          time.Time
-	Content            string
-	Reactions          []PostReactionCount
-	DistanceFromUser   int // whether the logged in user follows the author of this post
+	PostID                 int64
+	UserID                 int64
+	UserName               string
+	UserDisplayName        string
+	UserAvatarUploadID     int64 // TODO: I gotta store the filename instead
+	CreatedAt              time.Time
+	Content                string
+	Reactions              []PostReactionCount
+	ReplyingToPostID       int64
+	ReplyingToPostUserName string
+	DistanceFromUser       int // whether the logged in user follows the author of this post
 }
 
 func (p *Post) UserURL() string {
@@ -464,7 +466,8 @@ func GetPostReplies(conn *sqlite.Conn, postID int64) ([]Post, error) {
 		from post_reply
 		join post on post_reply.reply_post_id = post.post_id
 		join user using (user_id)
-		where post_reply.post_id = ?`
+		where post_reply.post_id = ?
+		order by post.created_at asc`
 	err := sqlitex.Exec(conn, query, collectPosts(&posts), postID)
 	return posts, err
 }
@@ -635,6 +638,41 @@ func GetReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) erro
 	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
 		stmt.SetText(":postIDsJSON", string(postIDsJSON))
 		stmt.SetInt64(":userID", userID)
+		return nil
+	})
+}
+
+func GetParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+	query := `
+		select
+			post_reply.reply_post_id,
+			post_reply.post_id,
+			user.user_name
+		from post_reply
+		join post using (post_id)
+		join user using (user_id)
+		where reply_post_id in (select value from json_each(:postIDsJSON))
+		`
+	postIDs := make([]int64, len(posts))
+	postsByID := make(map[int64]*Post)
+	for i := range posts {
+		postsByID[posts[i].PostID] = &posts[i]
+		postIDs[i] = posts[i].PostID
+	}
+	postIDsJSON, err := json.Marshal(postIDs)
+	if err != nil {
+		return err
+	}
+	collect := func(stmt *sqlite.Stmt) error {
+		replyPostID := stmt.ColumnInt64(0)
+		originalPostID := stmt.ColumnInt64(1)
+		originalPostUserName := stmt.ColumnText(2)
+		postsByID[replyPostID].ReplyingToPostID = originalPostID
+		postsByID[replyPostID].ReplyingToPostUserName = originalPostUserName
+		return nil
+	}
+	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetText(":postIDsJSON", string(postIDsJSON))
 		return nil
 	})
 }
@@ -824,6 +862,24 @@ func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 		}
 		posts[i].Content = DistortContent(posts[i].Content, distances[posts[i].UserID])
 		posts[i].DistanceFromUser = distances[posts[i].UserID]
+	}
+	return nil
+}
+
+// Decorate posts with the usual extra metadata, and distort them based on the distance
+// between the given user and the post's author.
+func DecoratePosts(conn *sqlite.Conn, user *User, posts []Post) error {
+	if len(posts) == 0 {
+		return nil
+	}
+	if err := GetReactionCountsForPosts(conn, user, posts); err != nil {
+		return err
+	}
+	if err := DistortPostsForUser(conn, user, posts); err != nil {
+		return err
+	}
+	if err := GetParentsForPosts(conn, user, posts); err != nil {
+		return err
 	}
 	return nil
 }

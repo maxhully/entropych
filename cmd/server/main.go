@@ -164,6 +164,8 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 	distanceFromUser := entropy.MaxDistortionLevel
 	var err error
 	if user != nil && postingUser.UserID != user.UserID {
+		fmt.Printf("user: %v\n", user)
+		fmt.Printf("postingUser: %v\n", postingUser)
 		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
 		if err != nil {
 			return nil, err
@@ -171,16 +173,15 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 		distanceFromUser = distances[postingUser.UserID]
 		isFollowing = distances[postingUser.UserID] == 1
 	}
+	if user != nil && postingUser.UserID == user.UserID {
+		distanceFromUser = 0
+	}
 	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
 	if err != nil {
 		return nil, err
 	}
-	if err = entropy.GetReactionCountsForPosts(conn, user, posts); err != nil {
+	if err := entropy.DecoratePosts(conn, user, posts); err != nil {
 		return nil, err
-	}
-	for i := range posts {
-		posts[i].Content = entropy.DistortContent(posts[i].Content, distanceFromUser)
-		posts[i].DistanceFromUser = distanceFromUser
 	}
 	stats, err := entropy.GetUserFollowStats(conn, postingUser.UserID)
 	if err != nil {
@@ -439,54 +440,43 @@ type postPage struct {
 	ReplyingToPost *entropy.Post
 }
 
-func decoratePosts(conn *sqlite.Conn, user *entropy.User, posts []entropy.Post) error {
-	if len(posts) == 0 {
-		return nil
-	}
-	if err := entropy.GetReactionCountsForPosts(conn, user, posts); err != nil {
-		return err
-	}
-	if err := entropy.DistortPostsForUser(conn, user, posts); err != nil {
-		return err
-	}
-	return nil
-}
-
 func getPostPage(conn *sqlite.Conn, user *entropy.User, postID int64) (*postPage, error) {
 	// TODO: maybe this should reuse getUserPostsPage somehow?
-	post, err := entropy.GetPost(conn, postID)
-	if err != nil {
-		return nil, err
-	}
-	if post == nil {
-		return nil, nil
-	}
-	// is there a better way to transmute a pointer into a length-1 slice?
-	postSlice := []entropy.Post{*post}
-	// TODO: consolidate all the "decorate posts with extras" functionality
-	// TODO: at least for this function!!
-	if err := decoratePosts(conn, user, postSlice); err != nil {
-		return nil, err
-	}
-	page := postPage{
+	page := postPage{User: user}
+	var err error
+	{
+		post, err := entropy.GetPost(conn, postID)
+		if err != nil {
+			return nil, err
+		}
+		if post == nil {
+			return nil, nil
+		}
+		// is there a better way to transmute a pointer into a length-1 slice?
+		postSlice := []entropy.Post{*post}
+		// TODO: consolidate all the "decorate posts with extras" functionality
+		// TODO: at least for this function!!
+		if err := entropy.DecoratePosts(conn, user, postSlice); err != nil {
+			return nil, err
+		}
 		// I'm curious about whether this is actually still the original address of `post`
-		Post: &postSlice[0],
-		User: user,
+		page.Post = &postSlice[0]
 	}
 	if page.Replies, err = entropy.GetPostReplies(conn, postID); err != nil {
 		return nil, err
 	}
-	if err := decoratePosts(conn, user, page.Replies); err != nil {
+	if err := entropy.DecoratePosts(conn, user, page.Replies); err != nil {
 		return nil, err
 	}
-	if page.ReplyingToPost, err = entropy.GetPostParent(conn, postID); err != nil {
-		return nil, err
-	}
-	if page.ReplyingToPost != nil {
-		parentPostSlice := []entropy.Post{*page.ReplyingToPost}
-		if err := decoratePosts(conn, user, parentPostSlice); err != nil {
+	if page.Post.ReplyingToPostID != 0 {
+		if page.ReplyingToPost, err = entropy.GetPost(conn, page.Post.ReplyingToPostID); err != nil {
 			return nil, err
 		}
+		parentPostSlice := []entropy.Post{*page.ReplyingToPost}
+		if err := entropy.DecoratePosts(conn, user, parentPostSlice); err != nil {
+			return nil, err
+		}
+		page.ReplyingToPost = &parentPostSlice[0]
 	}
 	return &page, err
 }

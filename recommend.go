@@ -57,10 +57,7 @@ func GetRecommendedPosts(conn *sqlite.Conn, user *User, before time.Time, limit 
 	if err != nil {
 		return nil, err
 	}
-	if err := GetReactionCountsForPosts(conn, user, posts); err != nil {
-		return nil, err
-	}
-	if err := DistortPostsForUser(conn, user, posts); err != nil {
+	if err := DecoratePosts(conn, user, posts); err != nil {
 		return nil, err
 	}
 	return posts, err
