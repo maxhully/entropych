@@ -184,6 +184,10 @@ func (p *Post) UserURL() string {
 	return userURL(p.UserName)
 }
 
+func (p *Post) PostURL() string {
+	return fmt.Sprintf("/p/%d/", p.PostID)
+}
+
 func getUploadURL(uploadID int64) string {
 	if uploadID == 0 {
 		return "/static/Prospero_and_miranda.jpg"
@@ -437,8 +441,56 @@ func GetPost(conn *sqlite.Conn, postID int64) (*Post, error) {
 		from post
 		join user using (user_id)
 		where post_id = ?`
+	if err := sqlitex.Exec(conn, query, collectPosts(&posts), postID); err != nil {
+		return nil, err
+	}
+	if len(posts) == 0 {
+		return nil, nil
+	}
+	return &posts[0], nil
+}
+
+func GetPostReplies(conn *sqlite.Conn, postID int64) ([]Post, error) {
+	var posts []Post
+	query := `
+		select
+			post.post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
+		from post_reply
+		join post on post_reply.reply_post_id = post.post_id
+		join user using (user_id)
+		where post_reply.post_id = ?`
 	err := sqlitex.Exec(conn, query, collectPosts(&posts), postID)
-	return &posts[0], err
+	return posts, err
+}
+
+func GetPostParent(conn *sqlite.Conn, postID int64) (*Post, error) {
+	var posts []Post
+	query := `
+		select
+			post.post_id,
+			user.user_id,
+			user.user_name,
+			user.display_name,
+			post.created_at,
+			post.content,
+			user.avatar_upload_id
+		from post_reply
+		join post using (post_id)
+		join user using (user_id)
+		where post_reply.reply_post_id = ?`
+	if err := sqlitex.Exec(conn, query, collectPosts(&posts), postID); err != nil {
+		return nil, err
+	}
+	if len(posts) == 0 {
+		return nil, nil
+	}
+	return &posts[0], nil
 }
 
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
@@ -479,7 +531,7 @@ func ReplyToPost(conn *sqlite.Conn, postID int64, userID int64, content string) 
 	if err != nil {
 		return 0, err
 	}
-	query := "insert into post_reply (post_id, post_reply_id) values (?, ?)"
+	query := "insert into post_reply (post_id, reply_post_id) values (?, ?)"
 	if err = sqlitex.Exec(conn, query, nil, postID, postReplyID); err != nil {
 		return 0, err
 	}

@@ -432,6 +432,65 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+type postPage struct {
+	Post           *entropy.Post
+	User           *entropy.User // the logged-in user
+	Replies        []entropy.Post
+	ReplyingToPost *entropy.Post
+}
+
+func decoratePosts(conn *sqlite.Conn, user *entropy.User, posts []entropy.Post) error {
+	if len(posts) == 0 {
+		return nil
+	}
+	if err := entropy.GetReactionCountsForPosts(conn, user, posts); err != nil {
+		return err
+	}
+	if err := entropy.DistortPostsForUser(conn, user, posts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getPostPage(conn *sqlite.Conn, user *entropy.User, postID int64) (*postPage, error) {
+	// TODO: maybe this should reuse getUserPostsPage somehow?
+	post, err := entropy.GetPost(conn, postID)
+	if err != nil {
+		return nil, err
+	}
+	if post == nil {
+		return nil, nil
+	}
+	// is there a better way to transmute a pointer into a length-1 slice?
+	postSlice := []entropy.Post{*post}
+	// TODO: consolidate all the "decorate posts with extras" functionality
+	// TODO: at least for this function!!
+	if err := decoratePosts(conn, user, postSlice); err != nil {
+		return nil, err
+	}
+	page := postPage{
+		// I'm curious about whether this is actually still the original address of `post`
+		Post: &postSlice[0],
+		User: user,
+	}
+	if page.Replies, err = entropy.GetPostReplies(conn, postID); err != nil {
+		return nil, err
+	}
+	if err := decoratePosts(conn, user, page.Replies); err != nil {
+		return nil, err
+	}
+	if page.ReplyingToPost, err = entropy.GetPostParent(conn, postID); err != nil {
+		return nil, err
+	}
+	if page.ReplyingToPost != nil {
+		parentPostSlice := []entropy.Post{*page.ReplyingToPost}
+		if err := decoratePosts(conn, user, parentPostSlice); err != nil {
+			return nil, err
+		}
+	}
+	return &page, err
+}
+
 func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
@@ -441,13 +500,13 @@ func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// TODO: maybe this should reuse getUserPostsPage somehow?
-	post, err := entropy.GetPost(conn, int64(postID))
+	page, err := getPostPage(conn, getCurrentUser(r.Context()), int64(postID))
 	if err != nil {
 		errorResponse(w, err)
 		return
 	}
 	// TODO: this template
-	app.RenderTemplate(w, r, "show_post.html", post)
+	app.RenderTemplate(w, r, "show_post.html", page)
 }
 
 func (app *App) ReplyToPost(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,40 @@
+{{define "main"}}
+<p>
+    <a href="/"><- back home</a>
+</p>
+
+<h1>{{.Post.UserName}}</h1>
+
+{{if .ReplyingToPost}}
+<h2>replying to:</h2>
+<ul class="posts">
+    {{template "post" .ReplyingToPost}}
+</ul>
+{{end}}
+
+<ul class="posts {{if .ReplyingToPost}}posts--indent{{end}}">
+    {{template "post" .Post}}
+</ul>
+
+<h2>replies</h2>
+
+{{if .User}}
+<form method="post" action="/p/{{.Post.PostID}}/reply" class="posts--indent">
+    {{csrf_field}}
+    <div><label for="content">reply: {{post_cta}}</label></div>
+    <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
+    <div><button>Post!</button></div>
+</form>
+{{else}}
+<p><a href="/login">Log in to reply</a></p>
+{{end}}
+
+{{if .Replies}}
+<ul class="posts posts--indent">
+    {{range .Replies}}
+    {{template "post" .}}
+    {{end}}
+</ul>
+{{end}}
+
+{{end}}
