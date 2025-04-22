@@ -229,9 +229,7 @@ type nameAndPasswordForm struct {
 func (f *nameAndPasswordForm) ParseFromBody(r *http.Request) error {
 	// TODO: this should never error, because the CSRF middleware should already have
 	// parsed the body. So I should be able to move this into newSignUpForm, etc.
-	if err := r.ParseForm(); err != nil {
-		return err
-	}
+	r.ParseForm()
 	f.Name = r.PostForm.Get("name")
 	f.Password = r.PostForm.Get("password")
 	return nil
@@ -423,10 +421,7 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 		redirectToLogin(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		badRequest(w, err)
-		return
-	}
+	r.ParseForm()
 	content := r.PostForm.Get("content")
 	// should empty posts be allowed?
 	_, err := entropy.CreatePost(conn, user.UserID, content)
@@ -453,6 +448,29 @@ func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
 	}
 	// TODO: this template
 	app.RenderTemplate(w, r, "show_post.html", post)
+}
+
+func (app *App) ReplyToPost(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
+	postID, err := strconv.Atoi(r.PathValue("post_id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	user := getCurrentUser(r.Context())
+	if user == nil {
+		redirectToLogin(w, r)
+		return
+	}
+	r.ParseForm()
+	content := r.PostForm.Get("content")
+	replyPostID, err := entropy.ReplyToPost(conn, int64(postID), user.UserID, content)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/p/%d/", replyPostID), http.StatusSeeOther)
 }
 
 func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
@@ -600,10 +618,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// TODO: parse body with 1MB upload limit
-	if err = r.ParseForm(); err != nil {
-		badRequest(w, err)
-		return
-	}
+	r.ParseForm()
 	var page updateProfilePage
 	page.User = user
 	page.Form.Errors = make(map[string]string)
@@ -754,9 +769,10 @@ func main() {
 	mux.HandleFunc("POST /profile", app.UpdateProfile)
 
 	mux.HandleFunc("POST /posts/new", app.NewPost)
-	mux.HandleFunc("GET /p/{post_id}", app.ShowPost)
+	mux.HandleFunc("GET /p/{post_id}/{$}", app.ShowPost)
 	mux.HandleFunc("POST /p/{post_id}/react", app.ReactToPost)
 	mux.HandleFunc("POST /p/{post_id}/unreact", app.UnreactToPost)
+	mux.HandleFunc("POST /p/{post_id}/reply", app.ReplyToPost)
 
 	mux.HandleFunc("/u/{username}/{$}", app.ShowUserPosts)
 	mux.HandleFunc("POST /u/{username}/follow", app.FollowUser)
