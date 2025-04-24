@@ -1,15 +1,7 @@
 {{define "main"}}
 <h1>Sign up</h1>
 
-{{if ne (len .Errors) 0 }}
-<ul>
-    {{range $name, $errors := .Errors}}
-    {{range $err := .}}
-    <li>{{$name}}: {{$err}}</li>
-    {{end}}
-    {{end}}
-</ul>
-{{end}}
+{{template "form_errors" .Errors}}
 
 <form method="post">
     {{csrf_field}}
