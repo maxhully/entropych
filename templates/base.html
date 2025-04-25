@@ -11,7 +11,21 @@
 </head>
 
 <body>
-    {{block "main" .}}{{end}}
+    <header class="header">
+        <a class="header__site-name" href="/">entropych.social</a>
+        <nav class="header__nav">
+            <!-- Maybe the "about" link doesn't need to exist? -->
+            <a href="/">Home</a>
+            <a href="/about">About</a>
+        </nav>
+        <div class="header__user-nav">
+            {{block "header_inner" .}}
+            {{end}}
+        </div>
+    </header>
+    <main class="main">
+        {{block "main" .}}{{end}}
+    </main>
 </body>
 
 </html>

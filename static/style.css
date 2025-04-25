@@ -9,9 +9,14 @@ html {
 }
 
 body {
+    margin: 0;
+    padding: 0;
+}
+
+.main {
     margin: 0 auto;
     max-width: 60rem;
-    padding: 0 0.5rem;
+    padding: 1rem 0.5rem;
 }
 
 textarea {
@@ -26,8 +31,17 @@ textarea {
     font-size: 1.25rem;
 }
 
-button {
+button,
+input {
     font: inherit;
+}
+
+a {
+    /* color: darkmagenta; */
+    color: blue;
+    text-decoration-style: solid;
+    text-decoration-thickness: 2px;
+    text-decoration-skip-ink: none;
 }
 
 .posts {
@@ -47,6 +61,7 @@ button {
     gap: 1rem;
     border: 2px solid black;
     box-shadow: 0.25rem 0.25rem 0 0 #aaa;
+    background-color: white;
 }
 
 .post__main {
@@ -88,14 +103,52 @@ button {
 .header {
     display: flex;
     align-items: center;
+    gap: 0.5rem 1rem;
+    background-color: black;
+    padding: 0.5rem 1rem;
+    color: white;
+    flex-wrap: wrap;
+}
+
+/* I don't know about this */
+a:focus {
+    box-shadow: 0 -2px cyan, 0 4px black;
+    background-color: cyan;
+    color: black !important;
+    text-decoration: none;
+    outline: none;
+}
+
+.header a {
+    color: cyan;
+}
+
+.header__site-name {
+    color: white !important;
+    text-decoration: none;
+    font-size: 1.75rem;
+    margin-right: 2rem;
+}
+
+.header__nav {
+    overflow-x: auto;
+    display: flex;
     gap: 1rem;
+    align-items: center;
 }
 
-.header > h1 {
-    margin-right: auto;
+.header__user-nav {
+    overflow-x: auto;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin-left: auto;
 }
 
-/* TODO: on mobile, have the avatar + header on top, with the content below */
+/* this is a lame name */
+.big-label {
+    font-size: 1.5rem;
+}
 
 /* Non-mobile styles */
 @media only screen and (min-width: 600px) {

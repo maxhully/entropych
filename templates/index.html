@@ -2,24 +2,24 @@
 <script src="/static/scroll.js" defer></script>
 {{end}}
 
-{{define "main"}}
-<header class="header">
-    <h1>entropych.social</h1>
-    {{if .User}}
-    <div>Hello, {{.User.Name}}! <a href="/profile">Profile</a></div>
-    <form method="post" action="/logout">
-        {{csrf_field}}
-        <button>Log out</button>
-    </form>
-    {{else}}
-    <div>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></div>
-    {{end}}
-</header>
+{{define "header_inner"}}
+<!-- TODO: render this on every route -->
+{{if .User}}
+<div>Hello, {{.User.Name}}! <a href="/profile">Profile</a></div>
+<form method="post" action="/logout">
+    {{csrf_field}}
+    <button>Log out</button>
+</form>
+{{else}}
+<div>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></div>
+{{end}}
+{{end}}
 
+{{define "main"}}
 {{if .User}}
 <form method="post" action="/posts/new">
     {{csrf_field}}
-    <div><label for="content">{{post_cta}}</label></div>
+    <div><label for="content" class="big-label">{{post_cta}}</label></div>
     <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
     <div><button>Post!</button></div>
 </form>
@@ -33,7 +33,6 @@
     get corrupted with random noise based on how far away they are from you in the
     social graph.
 </p>
-<p></p>
 {{end}}
 
 <ul class="posts" id="posts">

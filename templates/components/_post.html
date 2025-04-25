@@ -1,9 +1,10 @@
 {{define "post"}}
 <li class="post">
-    <img class="post__avatar no-mobile" src="{{.UserAvatarURL}}">
+    <img class="post__avatar no-mobile" src="{{.UserAvatarURL}}" alt="avatar for {{.UserName}}">
     <div class="post__main">
         <div class="post__header">
-            <img class="post__avatar post__avatar--mobile mobile-only" src="{{.UserAvatarURL}}">
+            <img class="post__avatar post__avatar--mobile mobile-only" src="{{.UserAvatarURL}}"
+                alt="avatar for {{.UserName}}">
             {{if .ReplyingToPostID}}
             ↪
             {{end}}
