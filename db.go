@@ -411,7 +411,7 @@ func GetRecentPostsFromRandos(conn *sqlite.Conn, userID int64, before time.Time,
 	return posts, err
 }
 
-func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post, error) {
+func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, before time.Time, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
 		select
@@ -425,9 +425,10 @@ func GetRecentPostsFromUser(conn *sqlite.Conn, userID int64, limit int) ([]Post,
 		from post
 		join user using (user_id)
 		where user_id = ?
+			and created_at < ?
 		order by created_at desc
 		limit ?`
-	err := sqlitex.Exec(conn, query, collectPosts(&posts), userID, limit)
+	err := sqlitex.Exec(conn, query, collectPosts(&posts), userID, before.UTC().Unix(), limit)
 	return posts, err
 }
 

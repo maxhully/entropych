@@ -27,10 +27,10 @@
         <label for="avatar" class="field__label">Avatar</label>
         <h-avatar-gen>
             <div>
-                <img src="{{.User.AvatarURL}}" alt="your current avatar">
+                <img src="{{.User.AvatarURL}}" alt="your current avatar" width="192" height="192">
             </div>
             <div>
-                <canvas width="256" height="256">
+                <canvas width="192" height="192">
                 </canvas>
             </div>
             <input type="file" name="avatar" id="avatar" accept="image/png" hidden>

@@ -1,7 +1,3 @@
-{{define "scripts"}}
-<script src="/static/scroll.js" defer></script>
-{{end}}
-
 {{define "header_inner"}}
 <!-- TODO: render this on every route -->
 {{if .User}}
@@ -45,6 +41,8 @@
     <h-infinite-scroll data-controls="posts">
         <a href="{{.NextPageURL}}" data-rel="next">More</a>
     </h-infinite-scroll>
+    {{else}}
+    <p class="whisper">(The end.) <a href="/">Back to top</a></p>
     {{end}}
 </ul>
 {{end}}

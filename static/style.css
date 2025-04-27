@@ -34,6 +34,13 @@ button,
 input {
     font: inherit;
 }
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+button:focus {
+    box-shadow: 0 0 0 0.25rem cyan;
+    outline: none;
+}
 
 a {
     /* color: darkmagenta; */
@@ -137,6 +144,7 @@ a:focus {
 }
 
 .header__user-nav {
+    padding: 0.25rem;
     overflow-x: auto;
     display: flex;
     gap: 1rem;
@@ -157,6 +165,11 @@ a:focus {
 
 .stack > * + * {
     margin-block-start: 1rem;
+}
+
+.whisper {
+    font-style: italic;
+    margin: 1.5rem 0;
 }
 
 /* Form field */
@@ -188,4 +201,22 @@ a:focus {
     .post {
         padding: 0.75rem;
     }
+}
+
+.skip-to-main {
+    position: fixed;
+    top: -100vh;
+    left: 1rem;
+    z-index: 1000;
+    color: black;
+    background-color: cyan;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    text-align: center;
+    text-decoration: none;
+}
+
+.skip-to-main:focus {
+    top: 0;
+    left: 0;
 }

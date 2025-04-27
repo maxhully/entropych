@@ -116,9 +116,9 @@ func defaultBefore() time.Time {
 	return time.Now().UTC().Add(time.Hour)
 }
 
-func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
-	conn := app.db.GetReadOnly(r.Context())
-	defer app.db.PutReadOnly(conn)
+// Parse the "before" time query parameter from the given request. If we can't parse it
+// (either because it's missing or malformed), we return defaultBefore() instead
+func parseBefore(r *http.Request) time.Time {
 	before := defaultBefore()
 	beforeRaw := r.URL.Query().Get("before")
 	var err error
@@ -129,6 +129,13 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 			before = defaultBefore()
 		}
 	}
+	return before
+}
+
+func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
+	conn := app.db.GetReadOnly(r.Context())
+	defer app.db.PutReadOnly(conn)
+	before := parseBefore(r)
 	user := getCurrentUser(r.Context())
 	posts, err := entropy.GetRecommendedPosts(conn, user, before, 50)
 	if err != nil {
@@ -136,14 +143,19 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := &homepage{
-		User:  user,
-		Posts: posts,
-	}
-	if len(posts) > 0 {
-		lastPostCreatedAt := posts[len(posts)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
-		page.NextPageURL = fmt.Sprintf("/?before=%s", url.QueryEscape(lastPostCreatedAt))
+		User:        user,
+		Posts:       posts,
+		NextPageURL: getNextPageURL(posts, "/"),
 	}
 	app.RenderTemplate(w, r, "index.html", page)
+}
+
+func getNextPageURL(posts []entropy.Post, urlPath string) string {
+	if len(posts) > 0 {
+		lastPostCreatedAt := posts[len(posts)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
+		return fmt.Sprintf("%s?before=%s", urlPath, url.QueryEscape(lastPostCreatedAt))
+	}
+	return ""
 }
 
 func (app *App) About(w http.ResponseWriter, r *http.Request) {
@@ -157,15 +169,14 @@ type userPostsPage struct {
 	IsFollowingPostingUser bool
 	PostingUserFollowStats *entropy.UserFollowStats
 	DistanceFromUser       int
+	NextPageURL            string
 }
 
-func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entropy.User) (*userPostsPage, error) {
+func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entropy.User, before time.Time) (*userPostsPage, error) {
 	isFollowing := false
 	distanceFromUser := entropy.MaxDistortionLevel
 	var err error
 	if user != nil && postingUser.UserID != user.UserID {
-		fmt.Printf("user: %v\n", user)
-		fmt.Printf("postingUser: %v\n", postingUser)
 		distances, err := entropy.GetDistanceFromUser(conn, user.UserID, []int64{postingUser.UserID})
 		if err != nil {
 			return nil, err
@@ -176,7 +187,7 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 	if user != nil && postingUser.UserID == user.UserID {
 		distanceFromUser = 0
 	}
-	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, 50)
+	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, before, 50)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +205,7 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 		IsFollowingPostingUser: isFollowing,
 		PostingUserFollowStats: stats,
 		DistanceFromUser:       distanceFromUser,
+		NextPageURL:            getNextPageURL(posts, postingUser.URL()),
 	}, nil
 }
 
@@ -212,7 +224,8 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := getCurrentUser(r.Context())
-	page, err := getUserPostsPage(conn, user, postingUser)
+	before := parseBefore(r)
+	page, err := getUserPostsPage(conn, user, postingUser, before)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -715,7 +728,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, user.URL(), http.StatusSeeOther)
 }
 
 // TODO: resizing...

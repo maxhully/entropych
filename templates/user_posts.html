@@ -15,6 +15,7 @@
 
 {{if .LoggedInUser }}
 {{if eq .LoggedInUser.UserID .PostingUser.UserID}}
+<p>(This is you.)</p>
 {{else if .IsFollowingPostingUser}}
 <form method="post" action="{{.PostingUser.URL}}unfollow">
     {{csrf_field}}
@@ -30,12 +31,22 @@
 </form>
 {{end}}
 {{else}}
-<p>Log in to follow</p>
+<form method="post" action="{{.PostingUser.URL}}follow">
+    {{csrf_field}}
+    <button>Follow</button>
+</form>
 {{end}}
 
-<ul class="posts">
+<ul class="posts" id="posts">
     {{range .Posts}}
     {{template "post" .}}
+    {{end}}
+    {{if .NextPageURL}}
+    <h-infinite-scroll data-controls="posts">
+        <a href="{{.NextPageURL}}" data-rel="next">More</a>
+    </h-infinite-scroll>
+    {{else}}
+    <p class="whisper">(The end.) <a href="{{.PostingUser.URL}}">Back to top</a></p>
     {{end}}
 </ul>
 {{end}}
