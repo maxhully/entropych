@@ -29,31 +29,33 @@
         </div>
         <!-- TODO: will need some JS to make sure pagination works right here -->
         <!-- might want to return an htmx-style partial response with the updated reaction counts -->
-        {{if .Reactions}}
-        {{range $reaction := .Reactions}}
-        {{if $reaction.UserReacted}}
-        <form method="post" action="/p/{{$.PostID}}/unreact" class="post__reactions">
-            {{csrf_field}}
-            <button class="post__react post__react--reacted">
-                {{$reaction.Emoji}}
-                {{$reaction.Count}}
-            </button>
-        </form>
-        {{else}}
-        <form method="post" action="/p/{{$.PostID}}/react" class="post__reactions">
-            {{csrf_field}}
-            <button class="post__react">
-                {{$reaction.Emoji}} {{$reaction.Count}}
-            </button>
-        </form>
-        {{end}}
-        {{end}}
-        {{else}}
-        <form method="post" action="/p/{{.PostID}}/react" class="post__reactions">
-            {{csrf_field}}
-            <button class="post__react">❤️</button>
-        </form>
-        {{end}}
+        <h-in-place data-in-place id="post_{{.PostID}}">
+            {{if .Reactions}}
+            {{range $reaction := .Reactions}}
+            {{if $reaction.UserReacted}}
+            <form method="post" action="/p/{{$.PostID}}/unreact" class="post__reactions">
+                {{csrf_field}}
+                <button class="post__react post__react--reacted" title="You {{$reaction.Emoji}}'d this post">
+                    {{$reaction.Emoji}}
+                    {{$reaction.Count}}
+                </button>
+            </form>
+            {{else}}
+            <form method="post" action="/p/{{$.PostID}}/react" class="post__reactions">
+                {{csrf_field}}
+                <button class="post__react">
+                    {{$reaction.Emoji}} {{$reaction.Count}}
+                </button>
+            </form>
+            {{end}}
+            {{end}}
+            {{else}}
+            <form method="post" action="/p/{{.PostID}}/react" class="post__reactions">
+                {{csrf_field}}
+                <button class="post__react">❤️</button>
+            </form>
+            {{end}}
+        </h-in-place>
     </div>
 </li>
 {{end}}

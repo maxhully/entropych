@@ -17,11 +17,13 @@
 
 {{define "main"}}
 {{if .User}}
-<form method="post" action="/posts/new">
+<form method="post" action="/posts/new" class="stack">
+    <div class="field">
+        <label for="content" class="big-label">{{post_cta}}</label>
+        <textarea id="content" name="content" rows="4" cols="60"></textarea>
+    </div>
+    <button>Post!</button>
     {{csrf_field}}
-    <div><label for="content" class="big-label">{{post_cta}}</label></div>
-    <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
-    <div><button>Post!</button></div>
 </form>
 {{else}}
 <p>

@@ -544,7 +544,7 @@ func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/p/%d/", postID), http.StatusSeeOther)
 }
 
 func (app *App) UnreactToPost(w http.ResponseWriter, r *http.Request) {
@@ -569,7 +569,7 @@ func (app *App) UnreactToPost(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, fmt.Sprintf("/p/%d/", postID), http.StatusSeeOther)
 }
 
 func (app *App) FollowUser(w http.ResponseWriter, r *http.Request) {

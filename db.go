@@ -321,6 +321,8 @@ func collectPosts(posts *[]Post) func(stmt *sqlite.Stmt) error {
 	}
 }
 
+// TODO: I feel like the `< :before` clauses should be <=. But we want to skip the last
+// ID from the previous page. This is drifting into "opaque pagination keys" territory.
 func GetRecentPosts(conn *sqlite.Conn, before time.Time, limit int) ([]Post, error) {
 	posts := make([]Post, 0, limit)
 	query := `

@@ -5,22 +5,20 @@
 
 {{template "form_errors" .Errors}}
 
-<form method="post" action="/login">
+<form method="post" action="/login" class="stack">
     {{csrf_field}}
-    <div>
-        <label>
-            Username:
-            <input type="text" name="name" required>
+    <div class="field">
+        <label class="field__label" for="name">
+            Username
         </label>
+        <input type="text" id="name" name="name" required>
     </div>
-    <div>
-        <label>
-            Password:
-            <input type="password" name="password" required>
+    <div class="field">
+        <label class="field__label" for="password">
+            Password
         </label>
+        <input type="password" id="password" name="password" required>
     </div>
-    <div>
-        <button>Log in</button>
-    </div>
+    <button>Log in</button>
 </form>
 {{end}}

@@ -9,24 +9,22 @@
 
 <h1>{{.User.Name}}</h1>
 
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" class="stack">
     {{csrf_field}}
     {{template "form_errors" .Form.Errors}}
-    <div>
-        <label>
-            Display Name<br>
-            <input type="text" name="display_name" value="{{.Form.DisplayName}}">
+    <div class="field">
+        <label for="display_name" class="field__label">
+            Display Name
         </label>
+        <input type="text" id="display_name" name="display_name" value="{{.Form.DisplayName}}">
     </div>
-    <div>
-        <label for="bio">Bio</label>
-    </div>
-    <div>
+    <div class="field">
+        <label for="bio" class="field__label">Bio</label>
         <textarea name="bio" id="bio" rows="4" cols="60">{{.Form.Bio}}</textarea>
     </div>
-    <div>
+    <div class="field">
         <!-- TODO: display current avatar -->
-        <label for="avatar">Avatar</label>
+        <label for="avatar" class="field__label">Avatar</label>
         <h-avatar-gen>
             <div>
                 <img src="{{.User.AvatarURL}}" alt="your current avatar">

@@ -25,7 +25,6 @@ textarea {
     background: white;
     border: 2px solid black;
     resize: none;
-    margin-bottom: 1rem;
     border-radius: 0.25rem;
     padding: 1rem;
     font-size: 1.25rem;
@@ -148,10 +147,27 @@ a:focus {
 /* this is a lame name */
 .big-label {
     font-size: 1.5rem;
+    display: block;
+    margin-bottom: 0.25rem;
 }
 
 .bio {
     font-style: italic;
+}
+
+.stack > * + * {
+    margin-block-start: 1rem;
+}
+
+/* Form field */
+.field {
+    display: block;
+}
+
+.field__label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 0.25rem;
 }
 
 /* Non-mobile styles */
