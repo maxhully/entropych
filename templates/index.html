@@ -3,7 +3,7 @@
 <form method="post" action="/posts/new" class="stack">
     <div class="field">
         <label for="content" class="big-label">{{post_cta}}</label>
-        <textarea id="content" name="content" rows="4" cols="60"></textarea>
+        <textarea id="content" name="content" rows="4" cols="60" maxlength="256"></textarea>
     </div>
     <button class="big-button">Post!</button>
     {{csrf_field}}

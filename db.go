@@ -177,6 +177,7 @@ type Post struct {
 	CreatedAt              time.Time
 	Content                string
 	Reactions              []PostReactionCount
+	ReplyCount             int // the number of replies this post got
 	ReplyingToPostID       int64
 	ReplyingToPostUserName string
 	DistanceFromUser       int // whether the logged in user follows the author of this post
@@ -520,7 +521,14 @@ func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	return user, err
 }
 
+const MaxPostLength = 256
+
 func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) {
+	// Being kinda lame and just truncating when the content is too long. We have a
+	// maxlength on the client side to enforce it there.
+	if len(content) > MaxPostLength {
+		content = content[:MaxPostLength]
+	}
 	query := "insert into post (user_id, created_at, content) values (?, ?, ?)"
 	err := sqlitex.Exec(conn, query, nil, userID, utcNow().Unix(), content)
 	if err != nil {
@@ -533,6 +541,8 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) 
 func ReplyToPost(conn *sqlite.Conn, postID int64, userID int64, content string) (int64, error) {
 	var err error
 	defer sqlitex.Save(conn)(&err)
+	// TODO: if postID is already a reply, should we make this new post a reply to the original post?
+	// That would keep it so replies have max depth 1
 	postReplyID, err := CreatePost(conn, userID, content)
 	if err != nil {
 		return 0, err
@@ -672,6 +682,38 @@ func GetParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 		originalPostUserName := stmt.ColumnText(2)
 		postsByID[replyPostID].ReplyingToPostID = originalPostID
 		postsByID[replyPostID].ReplyingToPostUserName = originalPostUserName
+		return nil
+	}
+	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
+		stmt.SetText(":postIDsJSON", string(postIDsJSON))
+		return nil
+	})
+}
+
+func GetReplyCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+	query := `
+		select
+			post_reply.post_id,
+			count(*) as reply_count
+		from post_reply
+		join post using (post_id)
+		where post_reply.post_id in (select value from json_each(:postIDsJSON))
+		group by 1
+		`
+	postIDs := make([]int64, len(posts))
+	postsByID := make(map[int64]*Post)
+	for i := range posts {
+		postsByID[posts[i].PostID] = &posts[i]
+		postIDs[i] = posts[i].PostID
+	}
+	postIDsJSON, err := json.Marshal(postIDs)
+	if err != nil {
+		return err
+	}
+	collect := func(stmt *sqlite.Stmt) error {
+		postID := stmt.ColumnInt64(0)
+		replyCount := stmt.ColumnInt64(1)
+		postsByID[postID].ReplyCount = int(replyCount)
 		return nil
 	}
 	return exec(conn, query, collect, func(stmt *sqlite.Stmt) error {
@@ -875,7 +917,11 @@ func DecoratePosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	if len(posts) == 0 {
 		return nil
 	}
+	// TODO: maybe make these private
 	if err := GetReactionCountsForPosts(conn, user, posts); err != nil {
+		return err
+	}
+	if err := GetReplyCountsForPosts(conn, user, posts); err != nil {
 		return err
 	}
 	if err := DistortPostsForUser(conn, user, posts); err != nil {

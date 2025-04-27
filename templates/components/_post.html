@@ -47,6 +47,9 @@
                 <button class="post__react">❤️</button>
             </form>
             {{end}}
+            {{if .ReplyCount}}
+            <a href="{{.PostURL}}#replies" class="post__replies-link">💬 {{.ReplyCount}}</a>
+            {{end}}
             <!-- Maybe move this below, where the reactions are? -->
             <a href="{{.PostURL}}" class="post__time">
                 <time title="{{.CreatedAt}}">
