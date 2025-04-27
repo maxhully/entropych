@@ -19,11 +19,13 @@
 <h2>replies</h2>
 
 {{if .User}}
-<form method="post" action="/p/{{.Post.PostID}}/reply" class="posts--indent">
+<form method="post" action="/p/{{.Post.PostID}}/reply" class="posts--indent stack">
     {{csrf_field}}
-    <div><label for="content">reply: {{post_cta}}</label></div>
-    <div><textarea id="content" name="content" rows="4" cols="60"></textarea></div>
-    <div><button>Post!</button></div>
+    <div class="field">
+        <label for="content">reply: {{post_cta}}</label>
+        <textarea id="content" name="content" rows="4" cols="60"></textarea>
+    </div>
+    <button>Post!</button>
 </form>
 {{else}}
 <p><a href="/login">Log in to reply</a></p>

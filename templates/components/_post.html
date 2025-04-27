@@ -8,34 +8,26 @@
             {{if .ReplyingToPostID}}
             ↪
             {{end}}
-            {{if ne .UserDisplayName .UserName}}
-            <a href="{{.UserURL}}">{{.UserDisplayName}} [{{.UserName}}]</a>
-            {{else}}
             <a href="{{.UserURL}}">{{.UserName}}</a>
-            {{end}}
             {{if .ReplyingToPostID}}
             <span>
                 replied to {{.ReplyingToPostUserName}}
             </span>
             {{end}}
-            <a href="{{.PostURL}}">
-                <time class="post__time no-mobile" title="{{.CreatedAt}}">
-                    {{.CreatedAt.Format "Jan 02 2006"}}
-                </time>
-            </a>
         </div>
         <div class="post__content">
             {{.Content}}
         </div>
         <!-- TODO: will need some JS to make sure pagination works right here -->
         <!-- might want to return an htmx-style partial response with the updated reaction counts -->
-        <h-in-place data-in-place id="post_{{.PostID}}">
+        <h-in-place data-in-place id="post_{{.PostID}}" class="post__footer">
             {{if .Reactions}}
             {{range $reaction := .Reactions}}
             {{if $reaction.UserReacted}}
             <form method="post" action="/p/{{$.PostID}}/unreact" class="post__reactions">
                 {{csrf_field}}
-                <button class="post__react post__react--reacted" title="You {{$reaction.Emoji}}'d this post">
+                <button class="post__react post__react--reacted"
+                    title="You {{$reaction.Emoji}}'d this post">
                     {{$reaction.Emoji}}
                     {{$reaction.Count}}
                 </button>
@@ -55,6 +47,12 @@
                 <button class="post__react">❤️</button>
             </form>
             {{end}}
+            <!-- Maybe move this below, where the reactions are? -->
+            <a href="{{.PostURL}}" class="post__time">
+                <time title="{{.CreatedAt}}">
+                    {{.CreatedAt.Format "Jan 02 2006"}}
+                </time>
+            </a>
         </h-in-place>
     </div>
 </li>
