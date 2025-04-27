@@ -86,25 +86,44 @@ func defaultBefore() time.Time {
 // Parse the "before" time query parameter from the given request. If we can't parse it
 // (either because it's missing or malformed), we return defaultBefore() instead
 func parseBefore(r *http.Request) time.Time {
-	before := defaultBefore()
 	beforeRaw := r.URL.Query().Get("before")
 	var err error
-	if beforeRaw != "" {
-		// Just ignore errors here
-		before, err = time.Parse(timeQueryParamLayout, beforeRaw)
-		if err != nil {
-			before = defaultBefore()
-		}
+	if beforeRaw == "" {
+		return defaultBefore()
+	}
+	// Just ignore errors here
+	before, err := time.Parse(timeQueryParamLayout, beforeRaw)
+	if err != nil {
+		return defaultBefore()
 	}
 	return before
 }
+
+// Parse the "after" time query parameter from the given request. If we can't parse it
+// (either because it's missing or malformed), we return defaultBefore() instead
+func parseAfter(r *http.Request) time.Time {
+	afterRaw := r.URL.Query().Get("after")
+	var err error
+	if afterRaw == "" {
+		return time.Time{}
+	}
+	// Just ignore errors here
+	after, err := time.Parse(timeQueryParamLayout, afterRaw)
+	if err != nil {
+		return time.Time{}
+	}
+	return after
+}
+
+// Default limit when paginating posts
+const postsLimit = 50
 
 func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.GetReadOnly(r.Context())
 	defer app.db.PutReadOnly(conn)
 	before := parseBefore(r)
 	user := entropy.GetCurrentUser(r.Context())
-	posts, err := entropy.GetRecommendedPosts(conn, user, before, 50)
+	posts, err := entropy.GetRecommendedPosts(conn, user, before, postsLimit)
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -112,13 +131,13 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	page := &homepage{
 		User:        user,
 		Posts:       posts,
-		NextPageURL: getNextPageURL(posts, "/"),
+		NextPageURL: getNextPageURL(posts, "/", postsLimit),
 	}
 	app.RenderTemplate(w, r, "index.html", page)
 }
 
-func getNextPageURL(posts []entropy.Post, urlPath string) string {
-	if len(posts) > 0 {
+func getNextPageURL(posts []entropy.Post, urlPath string, limit int) string {
+	if len(posts) == limit {
 		lastPostCreatedAt := posts[len(posts)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
 		return fmt.Sprintf("%s?before=%s", urlPath, url.QueryEscape(lastPostCreatedAt))
 	}
@@ -154,7 +173,7 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 	if user != nil && postingUser.UserID == user.UserID {
 		distanceFromUser = 0
 	}
-	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, before, 50)
+	posts, err := entropy.GetRecentPostsFromUser(conn, postingUser.UserID, before, postsLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +191,7 @@ func getUserPostsPage(conn *sqlite.Conn, user *entropy.User, postingUser *entrop
 		IsFollowingPostingUser: isFollowing,
 		PostingUserFollowStats: stats,
 		DistanceFromUser:       distanceFromUser,
-		NextPageURL:            getNextPageURL(posts, postingUser.URL()),
+		NextPageURL:            getNextPageURL(posts, postingUser.URL(), postsLimit),
 	}, nil
 }
 
@@ -418,10 +437,10 @@ type postPage struct {
 	User           *entropy.User // the logged-in user
 	Replies        []entropy.Post
 	ReplyingToPost *entropy.Post
+	NextPageURL    string // The URL for the next page of replies, if there are any
 }
 
-func getPostPage(conn *sqlite.Conn, user *entropy.User, postID int64) (*postPage, error) {
-	// TODO: maybe this should reuse getUserPostsPage somehow?
+func getPostPage(conn *sqlite.Conn, user *entropy.User, postID int64, repliesAfter time.Time) (*postPage, error) {
 	page := postPage{User: user}
 	var err error
 	{
@@ -434,16 +453,20 @@ func getPostPage(conn *sqlite.Conn, user *entropy.User, postID int64) (*postPage
 		}
 		// is there a better way to transmute a pointer into a length-1 slice?
 		postSlice := []entropy.Post{*post}
-		// TODO: consolidate all the "decorate posts with extras" functionality
-		// TODO: at least for this function!!
+		// TODO: could I consolidate these three DecoratePosts calls?
 		if err := entropy.DecoratePosts(conn, user, postSlice); err != nil {
 			return nil, err
 		}
 		// I'm curious about whether this is actually still the original address of `post`
 		page.Post = &postSlice[0]
 	}
-	if page.Replies, err = entropy.GetPostReplies(conn, postID); err != nil {
+	// TODO: better abstraction around pagination...
+	if page.Replies, err = entropy.GetPostReplies(conn, postID, repliesAfter, postsLimit); err != nil {
 		return nil, err
+	}
+	if len(page.Replies) == postsLimit {
+		lastPostCreatedAt := page.Replies[len(page.Replies)-1].CreatedAt.UTC().Format(timeQueryParamLayout)
+		page.NextPageURL = fmt.Sprintf("%s?after=%s", page.Post.PostURL(), url.QueryEscape(lastPostCreatedAt))
 	}
 	if err := entropy.DecoratePosts(conn, user, page.Replies); err != nil {
 		return nil, err
@@ -469,8 +492,7 @@ func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// TODO: maybe this should reuse getUserPostsPage somehow?
-	page, err := getPostPage(conn, entropy.GetCurrentUser(r.Context()), int64(postID))
+	page, err := getPostPage(conn, entropy.GetCurrentUser(r.Context()), int64(postID), parseAfter(r))
 	if err != nil {
 		errorResponse(w, err)
 		return

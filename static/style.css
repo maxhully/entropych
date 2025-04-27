@@ -1,5 +1,5 @@
 html {
-    font-family: monospace;
+    font-family: "Fantasque Sans Mono", Menlo, Consolas, Monaco, monospace;
     font-size: 1rem;
     box-sizing: border-box;
 }
@@ -59,11 +59,13 @@ a {
     list-style: none;
     padding: 0;
 }
-
 .posts--indent {
-    padding-left: 1.5rem;
-    margin-left: 1.5rem;
+    padding-left: 1.375rem;
+    margin-left: 1.375rem;
     border-left: 0.25rem solid #ccc;
+}
+.posts--indent-2 {
+    margin-left: 4.375rem;
 }
 
 .post {
@@ -76,35 +78,38 @@ a {
     box-shadow: 0.25rem 0.25rem 0 0 #aaa;
     background-color: white;
 }
-
 .post__main {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
     flex: 1;
 }
-
 .post__header,
 .post__footer {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+}
+.post__header {
+    gap: 0.25rem 0.5rem;
 }
 .post__footer {
     gap: 1.5rem;
 }
 .post__replies-link {
-    font-weight: bold;
     text-decoration: none;
     color: inherit;
+    /* Maybe put a text-shadow on just the emoji? Probably over-thinking it */
 }
 .post__time {
     margin-left: auto;
 }
 
 .post__content {
-    font-size: 1.25rem;
+    font-size: 1.25em;
     overflow-wrap: anywhere;
+}
+.posts--small .post__content {
+    font-size: 1rem;
 }
 
 .post__avatar {
@@ -178,6 +183,11 @@ a:focus {
     font-size: 1.5rem;
     display: block;
     margin-bottom: 0.25rem;
+    font-weight: bold;
+}
+.small-label {
+    display: block;
+    margin-bottom: 0.25rem;
 }
 .big-button {
     font-size: 1.25rem;
@@ -220,7 +230,7 @@ a:focus {
         display: none !important;
     }
     .post__header {
-        gap: 0.5rem;
+        flex-wrap: wrap;
     }
     .post__content {
         font-size: 1rem;
@@ -236,8 +246,11 @@ a:focus {
         font-size: 1rem;
     }
     .posts--indent {
-        padding-left: 0.75rem;
-        margin-left: 0.5rem;
+        padding-left: 0.875rem;
+        margin-left: 0.875rem;
+    }
+    .posts--small {
+        font-size: 0.75rem;
     }
 }
 
@@ -257,4 +270,11 @@ a:focus {
 .skip-to-main:focus {
     top: 0;
     left: 0;
+}
+
+.prose {
+    line-height: 1.5;
+}
+.prose h2 {
+    margin-top: 3rem;
 }

@@ -456,7 +456,7 @@ func GetPost(conn *sqlite.Conn, postID int64) (*Post, error) {
 	return &posts[0], nil
 }
 
-func GetPostReplies(conn *sqlite.Conn, postID int64) ([]Post, error) {
+func GetPostReplies(conn *sqlite.Conn, postID int64, after time.Time, limit int) ([]Post, error) {
 	var posts []Post
 	query := `
 		select
@@ -471,8 +471,10 @@ func GetPostReplies(conn *sqlite.Conn, postID int64) ([]Post, error) {
 		join post on post_reply.reply_post_id = post.post_id
 		join user using (user_id)
 		where post_reply.post_id = ?
-		order by post.created_at asc`
-	err := sqlitex.Exec(conn, query, collectPosts(&posts), postID)
+			and post.created_at > ?
+		order by post.created_at asc
+		limit ?`
+	err := sqlitex.Exec(conn, query, collectPosts(&posts), postID, after.UTC().Unix(), limit)
 	return posts, err
 }
 

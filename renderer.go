@@ -74,7 +74,6 @@ func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, req *http.Request, nam
 	tclone := template.Must(t.Clone())
 	csrfField := csrf.TemplateField(req)
 	user := GetCurrentUser(req.Context())
-	fmt.Printf("user: %v\n", user)
 	tclone.Funcs(template.FuncMap{
 		"csrf_field":   func() template.HTML { return csrfField },
 		"current_user": func() *User { return user },
@@ -94,6 +93,10 @@ const baseTemplatePath = "templates/base.html"
 //go:embed templates/*.html
 //go:embed templates/components/*.html
 var templateFS embed.FS
+
+func add(a int, b int) int {
+	return a + b
+}
 
 func NewRenderer() (*Renderer, error) {
 	renderer := Renderer{
@@ -116,6 +119,7 @@ func NewRenderer() (*Renderer, error) {
 		"current_user": func() *User { return nil },
 		"post_cta":     postCallToAction,
 		"distort":      DistortContent,
+		"add":          add,
 	})
 	template.Must(baseTemplate.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
 	// We override this func at execution time

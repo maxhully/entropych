@@ -35,7 +35,7 @@ func DistortContent(content string, graphDistance int) string {
 	var builder strings.Builder
 	builder.Grow(len(content))
 
-	// TODO: I think I need to make this subtler
+	// TODO: I think I need to make this subtler. The jump from 2 to 3 is crazy
 	p := min(float32(graphDistance-1)/float32(2*MaxDistortionLevel), 1.0)
 	if p == 0.0 {
 		p = 0.01

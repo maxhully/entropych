@@ -3,40 +3,62 @@
     <a href="/"><- back home</a>
 </p>
 
+{{if .ReplyingToPost}}
+<h1>{{.Post.UserName}} replied...</h1>
+{{else}}
 <h1>{{.Post.UserName}} posted...</h1>
+{{end}}
 
 {{if .ReplyingToPost}}
-<h2>replying to:</h2>
-<ul class="posts">
+<ul class="posts posts--small">
     {{template "post" .ReplyingToPost}}
 </ul>
 {{end}}
 
 <ul class="posts {{if .ReplyingToPost}}posts--indent{{end}}">
+    {{if .ReplyingToPost}}
+    {{if eq .ReplyingToPost.ReplyCount 2}}
+    <a href="{{.ReplyingToPost.PostURL}}#replies">
+        (+ one other reply)
+    </a>
+    {{else if gt .ReplyingToPost.ReplyCount 1}}
+    <a href="{{.ReplyingToPost.PostURL}}#replies">
+        (+ {{add .ReplyingToPost.ReplyCount -1}} other replies)
+    </a>
+    {{end}}
+    {{end}}
     {{template "post" .Post}}
 </ul>
 
+{{if .Post.ReplyCount}}
 <h2>replies</h2>
+{{else}}
+<h2>reply to this post</h2>
+{{end}}
 
 {{if .User}}
-<form method="post" action="/p/{{.Post.PostID}}/reply" class="posts--indent stack">
+<form method="post" action="/p/{{.Post.PostID}}/reply"
+    class="posts--indent stack {{if .ReplyingToPost}}posts--indent-2{{end}}">
     {{csrf_field}}
     <div class="field">
-        <label for="content">reply: {{post_cta}}</label>
-        <textarea id="content" name="content" rows="4" cols="60" maxlength="256"></textarea>
+        <label for="content" class="small-label">reply: {{post_cta}}</label>
+        <textarea id="content" name="content" rows="2" cols="60" maxlength="256"></textarea>
     </div>
-    <button>Post!</button>
+    <button>Reply!</button>
 </form>
 {{else}}
 <p><a href="/login">Log in to reply</a></p>
 {{end}}
 
-{{if .Replies}}
-<ul class="posts posts--indent">
+<ul class="posts posts--indent {{if .ReplyingToPost}}posts--indent-2{{end}}" id="replies">
     {{range .Replies}}
     {{template "post" .}}
     {{end}}
+    {{if .NextPageURL}}
+    <h-infinite-scroll data-controls="replies">
+        <a href="{{.NextPageURL}}" data-rel="next">More</a>
+    </h-infinite-scroll>
+    {{end}}
 </ul>
-{{end}}
 
 {{end}}
