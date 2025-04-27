@@ -73,7 +73,12 @@ func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, req *http.Request, nam
 	}
 	tclone := template.Must(t.Clone())
 	csrfField := csrf.TemplateField(req)
-	tclone.Funcs(template.FuncMap{"csrf_field": func() template.HTML { return csrfField }})
+	user := GetCurrentUser(req.Context())
+	fmt.Printf("user: %v\n", user)
+	tclone.Funcs(template.FuncMap{
+		"csrf_field":   func() template.HTML { return csrfField },
+		"current_user": func() *User { return user },
+	})
 
 	buf := r.bufpool.Get()
 	defer r.bufpool.Put(buf)
@@ -106,7 +111,12 @@ func NewRenderer() (*Renderer, error) {
 	// We include the helpers in templates/components/ too, so that everything defined
 	// there is usable in the child templates.
 	baseTemplate := template.New("")
-	baseTemplate.Funcs(template.FuncMap{"csrf_field": dummyCSRFField, "post_cta": postCallToAction})
+	baseTemplate.Funcs(template.FuncMap{
+		"csrf_field":   dummyCSRFField,
+		"current_user": func() *User { return nil },
+		"post_cta":     postCallToAction,
+		"distort":      DistortContent,
+	})
 	template.Must(baseTemplate.ParseFS(templateFS, "templates/components/*.html", baseTemplatePath))
 	// We override this func at execution time
 	for _, path := range paths {

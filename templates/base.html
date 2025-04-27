@@ -22,7 +22,14 @@
             <a href="/about">About</a>
         </nav>
         <div class="header__user-nav">
-            {{block "header_inner" .}}
+            {{if current_user}}
+            <div>Hello, {{current_user.Name}}! <a href="/profile">Profile</a></div>
+            <form method="post" action="/logout">
+                {{csrf_field}}
+                <button>Log out</button>
+            </form>
+            {{else}}
+            <div>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></div>
             {{end}}
         </div>
     </header>

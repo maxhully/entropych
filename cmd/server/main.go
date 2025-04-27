@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -64,38 +63,6 @@ func errorResponse(w http.ResponseWriter, err error) {
 	http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 }
 
-type userCtxKeyType struct{}
-
-var userCtxKey = userCtxKeyType{}
-
-// Adds the requesting user (if they're logged in) to the request context
-func (app *App) withUserContextMiddleware(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn := app.db.GetReadOnly(r.Context())
-		defer app.db.PutReadOnly(conn)
-		user, err := entropy.GetUserIfLoggedIn(conn, r)
-		if err != nil {
-			errorResponse(w, err)
-			return
-		}
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, userCtxKey, user)
-		r = r.WithContext(ctx)
-		h.ServeHTTP(w, r)
-	})
-}
-
-// Get the requesting user (stashed on the Context by withUserContextMiddleware)
-func getCurrentUser(ctx context.Context) *entropy.User {
-	user, ok := ctx.Value(userCtxKey).(*entropy.User)
-	// Being verbose to acknowledge that this wil be nil, and that's OK, if the user
-	// isn't logged in
-	if !ok {
-		return nil
-	}
-	return user
-}
-
 func (app *App) RenderTemplate(w http.ResponseWriter, r *http.Request, name string, data any) {
 	err := app.renderer.ExecuteTemplate(w, r, name, data)
 	if err != nil {
@@ -136,7 +103,7 @@ func (app *App) Homepage(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.GetReadOnly(r.Context())
 	defer app.db.PutReadOnly(conn)
 	before := parseBefore(r)
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	posts, err := entropy.GetRecommendedPosts(conn, user, before, 50)
 	if err != nil {
 		errorResponse(w, err)
@@ -223,7 +190,7 @@ func (app *App) ShowUserPosts(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	before := parseBefore(r)
 	page, err := getUserPostsPage(conn, user, postingUser, before)
 	if err != nil {
@@ -430,7 +397,7 @@ func (app *App) NewPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -503,7 +470,7 @@ func (app *App) ShowPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// TODO: maybe this should reuse getUserPostsPage somehow?
-	page, err := getPostPage(conn, getCurrentUser(r.Context()), int64(postID))
+	page, err := getPostPage(conn, entropy.GetCurrentUser(r.Context()), int64(postID))
 	if err != nil {
 		errorResponse(w, err)
 		return
@@ -520,7 +487,7 @@ func (app *App) ReplyToPost(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -538,7 +505,7 @@ func (app *App) ReplyToPost(w http.ResponseWriter, r *http.Request) {
 func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -563,7 +530,7 @@ func (app *App) ReactToPost(w http.ResponseWriter, r *http.Request) {
 func (app *App) UnreactToPost(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -589,7 +556,7 @@ func (app *App) FollowUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -620,7 +587,7 @@ func (app *App) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -674,7 +641,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// Save so that if the update fails we don't create the upload
 	defer sqlitex.Save(conn)(&err)
 
-	user := getCurrentUser(r.Context())
+	user := entropy.GetCurrentUser(r.Context())
 	if user == nil {
 		redirectToLogin(w, r)
 		return
@@ -843,7 +810,7 @@ func main() {
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
-	server := handlers.LoggingHandler(os.Stdout, csrfProtect(app.withUserContextMiddleware(mux)))
+	server := handlers.LoggingHandler(os.Stdout, csrfProtect(entropy.WithUserContextMiddleware(app.db, mux)))
 	t()
 
 	http.ListenAndServe(":7777", server)

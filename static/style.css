@@ -13,6 +13,11 @@ body {
     padding: 0;
 }
 
+h1,
+h2 {
+    margin: 0 0 1rem;
+}
+
 .main {
     margin: 0 auto;
     max-width: 60rem;
@@ -158,6 +163,9 @@ a:focus {
     display: block;
     margin-bottom: 0.25rem;
 }
+.big-button {
+    font-size: 1.25rem;
+}
 
 .bio {
     font-style: italic;
@@ -200,6 +208,13 @@ a:focus {
     }
     .post {
         padding: 0.75rem;
+    }
+    .big-label {
+        font-size: 1.25rem;
+    }
+    textarea {
+        padding: 0.25rem;
+        font-size: 1rem;
     }
 }
 

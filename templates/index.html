@@ -1,16 +1,3 @@
-{{define "header_inner"}}
-<!-- TODO: render this on every route -->
-{{if .User}}
-<div>Hello, {{.User.Name}}! <a href="/profile">Profile</a></div>
-<form method="post" action="/logout">
-    {{csrf_field}}
-    <button>Log out</button>
-</form>
-{{else}}
-<div>Hello, stranger! <a href="/login">Log in</a> <a href="/signup">Sign up</a></div>
-{{end}}
-{{end}}
-
 {{define "main"}}
 {{if .User}}
 <form method="post" action="/posts/new" class="stack">
@@ -18,18 +5,18 @@
         <label for="content" class="big-label">{{post_cta}}</label>
         <textarea id="content" name="content" rows="4" cols="60"></textarea>
     </div>
-    <button>Post!</button>
+    <button class="big-button">Post!</button>
     {{csrf_field}}
 </form>
 {{else}}
+<h1>{{distort "Welcome to entropych.social" 3}}</h1>
 <p>
     Curious about what everyone is talking about?
     <a href="/signup">Join <strong>entropych.social</strong></a> to find out.
 </p>
 <p>
-    <strong>entropych.social</strong> is a social media network where other users' posts
-    get corrupted with random noise based on how far away they are from you in the
-    social graph.
+    <strong>entropych.social</strong> is a social media network where posts are
+    corrupted with random noise as they travel across the social graph.
 </p>
 {{end}}
 
