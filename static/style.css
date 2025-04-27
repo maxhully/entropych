@@ -107,6 +107,7 @@ a {
 .post__content {
     font-size: 1.25em;
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 .posts--small .post__content {
     font-size: 1rem;

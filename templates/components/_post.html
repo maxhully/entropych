@@ -15,9 +15,7 @@
             </span>
             {{end}}
         </div>
-        <div class="post__content">
-            {{.Content}}
-        </div>
+        <div class="post__content">{{.Content}}</div>
         <!-- TODO: will need some JS to make sure pagination works right here -->
         <!-- might want to return an htmx-style partial response with the updated reaction counts -->
         <h-in-place data-in-place id="post_{{.PostID}}" class="post__footer">
