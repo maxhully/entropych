@@ -77,7 +77,7 @@ func (r *Renderer) ExecuteTemplate(w http.ResponseWriter, req *http.Request, nam
 
 	buf := r.bufpool.Get()
 	defer r.bufpool.Put(buf)
-	if err := tclone.ExecuteTemplate(w, r.baseTemplateName, data); err != nil {
+	if err := tclone.ExecuteTemplate(buf, r.baseTemplateName, data); err != nil {
 		return err
 	}
 	buf.WriteTo(w)
