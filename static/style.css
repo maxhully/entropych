@@ -213,7 +213,8 @@ a:focus {
     font-size: 1.5rem;
     display: block;
     margin-bottom: 0.25rem;
-    font-weight: bold;
+    /* I keep waffling on this */
+    /* font-weight: bold; */
 }
 .small-label {
     display: block;

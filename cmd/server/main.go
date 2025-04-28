@@ -839,6 +839,7 @@ func main() {
 	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	handler = csrfProtect(handler)
 	handler = entropy.SafeHeaderMiddleware(handler)
+	handler = handlers.CompressHandler(handler)
 	server := handlers.LoggingHandler(os.Stdout, handler)
 	t()
 
