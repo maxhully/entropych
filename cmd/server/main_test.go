@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/maxhully/entropy"
+	"github.com/stretchr/testify/assert"
 )
 
 func setUpTestApp(t *testing.T) (*App, error) {
@@ -154,5 +155,14 @@ func TestLogInUser(t *testing.T) {
 }
 
 func TestUpdateProfile(t *testing.T) {
+	app, err := setUpTestApp(t)
+	assert.Nil(t, err)
+	defer app.db.Close()
 
+	conn := app.db.Get(context.TODO())
+	defer app.db.Put(conn)
+
+	entropy.CreateUser(conn, "max", "pass123")
+
+	// TODO: update profile
 }

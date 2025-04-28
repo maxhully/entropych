@@ -1,16 +1,20 @@
 // Runs the entropy.social server
+//
+// This file has all the HTTP endpoints in it. It's a bit messy, and you could imagine
+// splitting it up into smaller "services" for posts, users, uploads, etc. But if I were
+// to do that right now, I think I'd only be doing it to prove that I could, and to
+// chase some sort of "working in a clean white room" aesthetic. And experience has
+// taught me to ignore that impulse.
 
 package main
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -47,7 +51,6 @@ func NewApp(db *entropy.DB) *App {
 		log.Fatalf("error from NewRenderer: %s", err)
 	}
 	return &App{
-		// TODO: how do I make base templates work...?!
 		renderer: renderer,
 		db:       db,
 	}
@@ -366,7 +369,6 @@ func newLogInForm() LogInForm {
 func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
-
 	form := newLogInForm()
 	if r.Method != http.MethodPost {
 		app.RenderTemplate(w, r, "login.html", form)
@@ -376,7 +378,6 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-
 	user, err := checkLogInForm(conn, &form)
 	if err != nil {
 		errorResponse(w, err)
@@ -386,7 +387,6 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, r, "login.html", form)
 		return
 	}
-
 	session, err := entropy.CreateUserSession(conn, user.UserID)
 	if err != nil {
 		errorResponse(w, err)
@@ -668,8 +668,13 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		redirectToLogin(w, r)
 		return
 	}
-	// TODO: parse body with 1MB upload limit
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			http.Error(w, "413 request entity too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		errorResponse(w, err)
+	}
 	var page updateProfilePage
 	page.User = user
 	page.Form.Errors = make(map[string]string)
@@ -707,7 +712,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	} else {
-		if uploadID, err = saveUpload(conn, file, header); err != nil {
+		if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
 			errorResponse(w, err)
 			return
 		}
@@ -720,40 +725,6 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, user.URL(), http.StatusSeeOther)
 }
 
-// TODO: resizing...
-func saveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHeader) (int64, error) {
-	contents, err := io.ReadAll(file)
-	if err != nil {
-		return 0, err
-	}
-	contentTypes := header.Header["Content-Type"]
-	if len(contentTypes) != 1 {
-		// TODO: make this a 400?
-		return 0, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
-	}
-	contentType := contentTypes[0]
-	stem, err := randomHex()
-	if err != nil {
-		return 0, err
-	}
-	exts, err := mime.ExtensionsByType(contentType)
-	if err != nil {
-		return 0, err
-	}
-	filename := stem + exts[0]
-	return entropy.SaveUpload(conn, filename, contentType, contents)
-}
-
-func randomHex() (string, error) {
-	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		// Should probably just panic, tbh
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
-// TODO: set caching headers
 func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.GetReadOnly(r.Context())
 	defer app.db.PutReadOnly(conn)
@@ -838,8 +809,9 @@ func main() {
 	var handler http.Handler
 	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	handler = csrfProtect(handler)
-	handler = entropy.SafeHeaderMiddleware(handler)
 	handler = handlers.CompressHandler(handler)
+	handler = entropy.SafeHeaderMiddleware(handler)
+	handler = http.MaxBytesHandler(handler, 1024*1024)
 	server := handlers.LoggingHandler(os.Stdout, handler)
 	t()
 

@@ -27,34 +27,20 @@ func TestFollowUser(t *testing.T) {
 	defer db.Put(conn)
 
 	maxUser, err := CreateUser(conn, "Max", "maxpass")
-	if err != nil {
-		t.Fatalf("could not create user Max: %v", err)
-	}
+	assert.Nil(t, err)
 	lunaUser, err := CreateUser(conn, "Luna", "lunapass")
-	if err != nil {
-		t.Fatalf("could not create user Max: %v", err)
-	}
+	assert.Nil(t, err)
 	err = FollowUser(conn, maxUser.UserID, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("could not follow user: %v", err)
-	}
+	assert.Nil(t, err)
 	err = FollowUser(conn, maxUser.UserID, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("FollowUser not idempotent: %v", err)
-	}
+	assert.Nil(t, err)
 
-	isFollowing, err := IsFollowing(conn, maxUser.UserID, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("IsFollowing: %v", err)
-	}
-	if !isFollowing {
-		t.Error("expected isFollowing to be true")
-	}
+	dists, err := GetDistanceFromUser(conn, maxUser.UserID, []int64{lunaUser.UserID})
+	assert.Nil(t, err)
+	assert.Equal(t, dists[lunaUser.UserID], 1)
 
 	err = FollowUser(conn, maxUser.UserID, maxUser.UserID)
-	if err == nil {
-		t.Fatal("expected error when following self")
-	}
+	assert.NotNil(t, err)
 }
 
 func TestFollowerStats(t *testing.T) {
@@ -65,39 +51,21 @@ func TestFollowerStats(t *testing.T) {
 	defer db.Put(conn)
 
 	maxUser, err := CreateUser(conn, "Max", "maxpass")
-	if err != nil {
-		t.Fatalf("could not create user Max: %v", err)
-	}
+	assert.Nil(t, err)
 	lunaUser, err := CreateUser(conn, "Luna", "lunapass")
-	if err != nil {
-		t.Fatalf("could not create user Max: %v", err)
-	}
+	assert.Nil(t, err)
 	err = FollowUser(conn, maxUser.UserID, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("could not follow user: %v", err)
-	}
+	assert.Nil(t, err)
 
 	followerStats, err := GetUserFollowStats(conn, maxUser.UserID)
-	if err != nil {
-		t.Fatalf("could not get follower stats: %v", err)
-	}
-	if followerStats.FollowerCount != 0 {
-		t.Fatalf("followerStats.FollowerCount: %v, expected 0\n", followerStats.FollowerCount)
-	}
-	if followerStats.FollowingCount != 1 {
-		t.Fatalf("followerStats.FollowerCount: %v, expected 1\n", followerStats.FollowerCount)
-	}
+	assert.Nil(t, err)
+	assert.EqualValues(t, followerStats.FollowerCount, 0)
+	assert.EqualValues(t, followerStats.FollowingCount, 1)
 
 	followerStats, err = GetUserFollowStats(conn, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("could not get follower stats: %v", err)
-	}
-	if followerStats.FollowerCount != 1 {
-		t.Fatalf("followerStats.FollowerCount: %v, expected 1\n", followerStats.FollowerCount)
-	}
-	if followerStats.FollowingCount != 0 {
-		t.Fatalf("followerStats.FollowerCount: %v, expected 0\n", followerStats.FollowerCount)
-	}
+	assert.Nil(t, err)
+	assert.EqualValues(t, followerStats.FollowerCount, 1)
+	assert.EqualValues(t, followerStats.FollowingCount, 0)
 }
 
 func TestGetDistanceFromUser(t *testing.T) {
@@ -108,43 +76,23 @@ func TestGetDistanceFromUser(t *testing.T) {
 	defer db.Put(conn)
 
 	maxUser, err := CreateUser(conn, "Max", "maxpass")
-	if err != nil {
-		t.Fatalf("could not create user Max: %v", err)
-	}
+	assert.Nil(t, err)
 	lunaUser, err := CreateUser(conn, "Luna", "lunapass")
-	if err != nil {
-		t.Fatalf("could not create user Luna: %v", err)
-	}
+	assert.Nil(t, err)
 	err = FollowUser(conn, maxUser.UserID, lunaUser.UserID)
-	if err != nil {
-		t.Fatalf("could not follow user: %v", err)
-	}
+	assert.Nil(t, err)
 	birdUser, err := CreateUser(conn, "Bird", "birdpass")
-	if err != nil {
-		t.Fatalf("could not create user Bird: %v", err)
-	}
+	assert.Nil(t, err)
 	err = FollowUser(conn, lunaUser.UserID, birdUser.UserID)
-	if err != nil {
-		t.Fatalf("could not follow user: %v", err)
-	}
+	assert.Nil(t, err)
 	strangerUser, err := CreateUser(conn, "Stranger", "strangerpass")
-	if err != nil {
-		t.Fatalf("could not create user Stranger: %v", err)
-	}
+	assert.Nil(t, err)
 
 	dists, err := GetDistanceFromUser(conn, maxUser.UserID, []int64{lunaUser.UserID, birdUser.UserID, strangerUser.UserID})
-	if err != nil {
-		t.Fatalf("could not get distances: %v", err)
-	}
-	if dists[lunaUser.UserID] != 1 {
-		t.Errorf("expected dists[%v]=%v to be 1", lunaUser.UserID, dists[lunaUser.UserID])
-	}
-	if dists[birdUser.UserID] != 2 {
-		t.Errorf("expected dists[%v]=%v to be 2", birdUser.UserID, dists[birdUser.UserID])
-	}
-	if dists[strangerUser.UserID] != MaxDistortionLevel {
-		t.Errorf("expected dists[%v]=%v to be %d", strangerUser.UserID, dists[strangerUser.UserID], MaxDistortionLevel)
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, dists[lunaUser.UserID], 1)
+	assert.Equal(t, dists[birdUser.UserID], 2)
+	assert.Equal(t, dists[strangerUser.UserID], MaxDistortionLevel)
 }
 
 func TestUploads(t *testing.T) {
@@ -154,7 +102,7 @@ func TestUploads(t *testing.T) {
 	conn := db.Get(context.TODO())
 	defer db.Put(conn)
 
-	uploadID, err := SaveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
+	uploadID, err := saveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
 	assert.Nil(t, err)
 	assert.Greater(t, uploadID, int64(0))
 

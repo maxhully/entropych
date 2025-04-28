@@ -41,7 +41,7 @@ func DistortContent(content string, graphDistance int) string {
 		p = 0.01
 	}
 
-	// TODO: wrap the errors in <mark> tags in a different style
+	// TODO: wrap the noise in <mark> tags in a different style?
 	for _, r := range content {
 		if mathrand.Float32() > p {
 			builder.WriteRune(r)

@@ -1,13 +1,22 @@
+// All the operations on the entropych database are in here.
+//
+// This package is called `entropy` because originally I was gonna call it
+// entropy.social. But that domain name was taken. For a while it redirected to Twitter,
+// which was an even better joke than entropych.social is.
+
 package entropy
 
 import (
 	"context"
 	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/url"
 	"time"
 
@@ -15,24 +24,18 @@ import (
 	"crawshaw.io/sqlite/sqlitex"
 )
 
-// I wonder if I should have a "Must"-style helper for these SQLite query functions that
-// I really truly never expect to error. Might simplify some server code.
-
 // The SQL schema for the app's database
 //
 //go:embed schema.sql
 var schemaSQL string
 
+// DB manages a pool each of read-only and read-write connections to the SQLite database.
+//
 // It seems like a lot of go code ties the connection to the context (and passes around
 // the context), rather than passing around the actual connection. But I'm happy with
-// passing around the connection (for now, at least).
-//
-// I'm curious if there's a way that I can make the db error handling nicer. We don't
-// want to panic, but we also don't expect them to happen almost ever.
-//
-// ...Maybe I _do_ want to panic on unexpected SQLite errors?
-//
-// TODO: separate read-only and read-write pools
+// passing around the connection (for now, at least). The alternate design would be to
+// make all of these functions methods of DB, and have them acquire the right type of
+// connection for the operation (read or write). That would have some advantages.
 type DB struct {
 	roPool *sqlitex.Pool
 	rwPool *sqlitex.Pool
@@ -141,7 +144,7 @@ type User struct {
 	UserID      int64
 	Name        string
 	DisplayName string
-	// TODO: We don't always need the Bio. I think I should take it out of the User struct
+	// TODO: We don't always need the Bio. Maybe I should take it out of the User struct
 	Bio            string
 	AvatarUploadID int64
 }
@@ -173,7 +176,7 @@ type Post struct {
 	UserID                 int64
 	UserName               string
 	UserDisplayName        string
-	UserAvatarUploadID     int64 // TODO: I gotta store the filename instead
+	UserAvatarUploadID     int64 // TODO: get the upload filename instead
 	CreatedAt              time.Time
 	Content                string
 	Reactions              []PostReactionCount
@@ -218,6 +221,8 @@ func utcNow() time.Time {
 	return time.Now().UTC()
 }
 
+// Return a map mapping each of the otherUserIDs to their distance from userID (capped
+// at MaxDistortionLevel).
 func GetDistanceFromUser(conn *sqlite.Conn, userID int64, otherUserIDs []int64) (map[int64]int, error) {
 	// This could **almost** be a recursive CTE, but since our graph has cycles we need
 	// to exclude everything from the previous iteration with a `not in ( ... )` clause
@@ -478,30 +483,6 @@ func GetPostReplies(conn *sqlite.Conn, postID int64, after time.Time, limit int)
 	return posts, err
 }
 
-func GetPostParent(conn *sqlite.Conn, postID int64) (*Post, error) {
-	var posts []Post
-	query := `
-		select
-			post.post_id,
-			user.user_id,
-			user.user_name,
-			user.display_name,
-			post.created_at,
-			post.content,
-			user.avatar_upload_id
-		from post_reply
-		join post using (post_id)
-		join user using (user_id)
-		where post_reply.reply_post_id = ?`
-	if err := sqlitex.Exec(conn, query, collectPosts(&posts), postID); err != nil {
-		return nil, err
-	}
-	if len(posts) == 0 {
-		return nil, nil
-	}
-	return &posts[0], nil
-}
-
 func GetUserByName(conn *sqlite.Conn, name string) (*User, error) {
 	var user *User = nil
 	query := `
@@ -543,8 +524,6 @@ func CreatePost(conn *sqlite.Conn, userID int64, content string) (int64, error) 
 func ReplyToPost(conn *sqlite.Conn, postID int64, userID int64, content string) (int64, error) {
 	var err error
 	defer sqlitex.Save(conn)(&err)
-	// TODO: if postID is already a reply, should we make this new post a reply to the original post?
-	// That would keep it so replies have max depth 1
 	postReplyID, err := CreatePost(conn, userID, content)
 	if err != nil {
 		return 0, err
@@ -613,7 +592,7 @@ func UnreactToPostIfExists(conn *sqlite.Conn, userID int64, postID int64) (bool,
 }
 
 // Sets the Reactions field on each post in the given slice.
-func GetReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+func getReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	var userID int64
 	if user != nil {
 		userID = user.UserID
@@ -657,7 +636,7 @@ func GetReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) erro
 	})
 }
 
-func GetParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+func getParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	query := `
 		select
 			post_reply.reply_post_id,
@@ -692,7 +671,7 @@ func GetParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	})
 }
 
-func GetReplyCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+func getReplyCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	query := `
 		select
 			post_reply.post_id,
@@ -815,19 +794,6 @@ func UnfollowUser(conn *sqlite.Conn, userID int64, followedUserID int64) error {
 	return sqlitex.Exec(conn, query, nil, userID, followedUserID)
 }
 
-func IsFollowing(conn *sqlite.Conn, userID int64, followedUserID int64) (bool, error) {
-	query := "select 1 from user_follow where user_id = ? and followed_user_id = ?"
-	isFollowing := false
-	collect := func(stmt *sqlite.Stmt) error {
-		if stmt.ColumnInt64(0) == 1 {
-			isFollowing = true
-		}
-		return nil
-	}
-	err := sqlitex.Exec(conn, query, collect, userID, followedUserID)
-	return isFollowing, err
-}
-
 type UserFollowStats struct {
 	UserID         int64
 	FollowingCount int64
@@ -876,10 +842,8 @@ func GetUserFollowStats(conn *sqlite.Conn, userID int64) (*UserFollowStats, erro
 }
 
 // Maybe take the distances as an argument, instead of looking them up here
-func DistortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
+func distortPostsForUser(conn *sqlite.Conn, user *User, posts []Post) error {
 	if user == nil {
-		// TODO: decide what the default distortion level should be for unauthenticated.
-		// Maybe just maximum? (5)
 		for i := range posts {
 			posts[i].Content = DistortContent(posts[i].Content, MaxDistortionLevel)
 			posts[i].DistanceFromUser = MaxDistortionLevel
@@ -919,26 +883,55 @@ func DecoratePosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	if len(posts) == 0 {
 		return nil
 	}
-	// TODO: maybe make these private
-	if err := GetReactionCountsForPosts(conn, user, posts); err != nil {
+	if err := getReactionCountsForPosts(conn, user, posts); err != nil {
 		return err
 	}
-	if err := GetReplyCountsForPosts(conn, user, posts); err != nil {
+	if err := getReplyCountsForPosts(conn, user, posts); err != nil {
 		return err
 	}
-	if err := DistortPostsForUser(conn, user, posts); err != nil {
+	if err := distortPostsForUser(conn, user, posts); err != nil {
 		return err
 	}
-	if err := GetParentsForPosts(conn, user, posts); err != nil {
+	if err := getParentsForPosts(conn, user, posts); err != nil {
 		return err
 	}
 	return nil
 }
 
-// TODO: streaming blob writes? would be cool!
-// TODO: maybe this function should manage setting a unique name, instead of expecting
-// that from the caller. (and let filename not be unique)
-func SaveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) (int64, error) {
+// TODO: resizing images...
+func SaveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHeader) (int64, error) {
+	contents, err := io.ReadAll(file)
+	if err != nil {
+		return 0, err
+	}
+	contentTypes := header.Header["Content-Type"]
+	if len(contentTypes) != 1 {
+		// TODO: make this a 400?
+		return 0, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
+	}
+	contentType := contentTypes[0]
+	stem, err := randomHex()
+	if err != nil {
+		return 0, err
+	}
+	exts, err := mime.ExtensionsByType(contentType)
+	if err != nil {
+		return 0, err
+	}
+	filename := stem + exts[0]
+	return saveUpload(conn, filename, contentType, contents)
+}
+
+func randomHex() (string, error) {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Should probably just panic, tbh
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func saveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) (int64, error) {
 	query := "insert into upload (filename, created_at, content_type, contents) values (?, ?, ?, ?)"
 	err := sqlitex.Exec(conn, query, nil, filename, utcNow().Unix(), contentType, contents)
 	if err != nil {
