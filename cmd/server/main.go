@@ -832,7 +832,12 @@ func main() {
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
 	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
-	server := handlers.LoggingHandler(os.Stdout, csrfProtect(entropy.WithUserContextMiddleware(app.db, mux)))
+
+	var handler http.Handler
+	handler = entropy.WithUserContextMiddleware(app.db, mux)
+	handler = csrfProtect(handler)
+	handler = entropy.SafeHeaderMiddleware(handler)
+	server := handlers.LoggingHandler(os.Stdout, handler)
 	t()
 
 	http.ListenAndServe(":7777", server)

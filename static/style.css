@@ -1,5 +1,35 @@
+@font-face {
+    font-family: "Fantasque Sans Mono";
+    src: url("/static/fonts/FantasqueSansMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    size-adjust: 115%;
+}
+@font-face {
+    font-family: "Fantasque Sans Mono";
+    src: url("/static/fonts/FantasqueSansMono-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    size-adjust: 115%;
+}
+@font-face {
+    font-family: "Fantasque Sans Mono";
+    src: url("/static/fonts/FantasqueSansMono-Italic.woff2") format("woff2");
+    font-weight: 400;
+    font-style: italic;
+    size-adjust: 115%;
+}
+@font-face {
+    font-family: "Fantasque Sans Mono";
+    src: url("/static/fonts/FantasqueSansMono-BoldItalic.woff2") format("woff2");
+    font-weight: 700;
+    font-style: italic;
+    size-adjust: 115%;
+}
+
 html {
     font-family: "Fantasque Sans Mono", Menlo, Consolas, Monaco, monospace;
+    /* font-family: Menlo, Consolas, Monaco, "Ubuntu Monospace", monospace; */
     font-size: 1rem;
     box-sizing: border-box;
 }
@@ -118,7 +148,6 @@ a {
     border: 2px solid black;
     height: 3rem;
     width: 3rem;
-    margin-right: 0.5rem;
     object-fit: cover;
 }
 
