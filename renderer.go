@@ -57,6 +57,8 @@ var ctas []string = []string{
 	"go off:",
 	"keep it real:",
 	"ADFOIJRTHOI%#MBOIADFMBIVJ",
+	"be civilized, for once:",
+	"let loose",
 }
 
 func postCallToAction() string {

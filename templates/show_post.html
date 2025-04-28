@@ -18,11 +18,11 @@
 <ul class="posts {{if .ReplyingToPost}}posts--indent{{end}}">
     {{if .ReplyingToPost}}
     {{if eq .ReplyingToPost.ReplyCount 2}}
-    <a href="{{.ReplyingToPost.PostURL}}#replies">
+    <a href="{{.ReplyingToPost.PostURL}}">
         (+ one other reply)
     </a>
     {{else if gt .ReplyingToPost.ReplyCount 1}}
-    <a href="{{.ReplyingToPost.PostURL}}#replies">
+    <a href="{{.ReplyingToPost.PostURL}}">
         (+ {{add .ReplyingToPost.ReplyCount -1}} other replies)
     </a>
     {{end}}
