@@ -774,6 +774,8 @@ func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer blob.Close()
 	w.Header().Set("Content-Type", contentType)
+	// Set a 1-year expiration for the PNGs, because they're immutable
+	w.Header().Set("Cache-Control", "max-age=31536000, public, immutable")
 	// TODO: should probably buffer this and handle errors?
 	io.Copy(w, blob)
 }
