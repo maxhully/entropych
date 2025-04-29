@@ -804,7 +804,12 @@ func main() {
 
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
-	csrfProtect := csrf.Protect(secretKey, csrf.FieldName("csrf_token"))
+	csrfProtect := csrf.Protect(
+		secretKey,
+		csrf.FieldName("csrf_token"),
+		csrf.TrustedOrigins([]string{"localhost:7777"}),
+		csrf.Path("/"),
+	)
 
 	var handler http.Handler
 	handler = entropy.WithUserContextMiddleware(app.db, mux)
@@ -812,8 +817,8 @@ func main() {
 	handler = handlers.CompressHandler(handler)
 	handler = entropy.SafeHeaderMiddleware(handler)
 	handler = http.MaxBytesHandler(handler, 1024*1024)
-	server := handlers.LoggingHandler(os.Stdout, handler)
+	handler = handlers.LoggingHandler(os.Stdout, handler)
 	t()
 
-	http.ListenAndServe(":7777", server)
+	http.ListenAndServe(":7777", handler)
 }
