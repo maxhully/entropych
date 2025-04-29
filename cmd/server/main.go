@@ -753,8 +753,9 @@ func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	t := timer("startup")
-	// Might want this to be in a secret file instead
+	// Might want this to be in a secret file instead, or environment variables
 	secretKeyFlag := flag.String("secret-key", "", "Secret key for signed cookies (hex encoded)")
+	dbUri := flag.String("db", "", "File path (or other URI) for the SQLite database")
 	flag.Parse()
 
 	if secretKeyFlag == nil || len(*secretKeyFlag) == 0 {
@@ -768,8 +769,11 @@ func main() {
 	if len(secretKey) != 32 {
 		log.Fatal("--secret-key must be 32 bytes")
 	}
+	if dbUri == nil {
+		log.Fatal("--db is required")
+	}
 
-	db, err := entropy.NewDB("test.db", 10)
+	db, err := entropy.NewDB(*dbUri, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
