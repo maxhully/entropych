@@ -3,3 +3,5 @@ test.db-shm
 test.db-wal
 run.sh
 .DS_Store
+**/*.env
+build/

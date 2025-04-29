@@ -11,7 +11,6 @@ package main
 import (
 	"encoding/hex"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -782,27 +781,23 @@ func withSafeHeaders(h http.Handler) http.Handler {
 
 func main() {
 	t := timer("startup")
-	// Might want this to be in a secret file instead, or environment variables
-	secretKeyFlag := flag.String("secret-key", "", "Secret key for signed cookies (hex encoded)")
-	dbUri := flag.String("db", "", "File path (or other URI) for the SQLite database")
-	flag.Parse()
-
-	if secretKeyFlag == nil || len(*secretKeyFlag) == 0 {
-		log.Fatal("--secret-key is required")
+	secretKeyHex := os.Getenv("ENTROPYCH_SECRET_KEY")
+	dbUri := os.Getenv("ENTROPYCH_DB")
+	if secretKeyHex == "" {
+		log.Fatal("ENTROPYCH_SECRET_KEY is required")
 	}
-	secretKeyHex := *secretKeyFlag
 	secretKey, err := hex.DecodeString(secretKeyHex)
 	if err != nil {
-		log.Fatal("--secret-key must be hex-encoded")
+		log.Fatal("ENTROPYCH_SECRET_KEY must be hex-encoded")
 	}
 	if len(secretKey) != 32 {
-		log.Fatal("--secret-key must be 32 bytes")
+		log.Fatal("ENTROPYCH_SECRET_KEY must be 32 bytes")
 	}
-	if dbUri == nil {
-		log.Fatal("--db is required")
+	if dbUri == "" {
+		log.Fatal("ENTROPYCH_DB is required")
 	}
 
-	db, err := entropy.NewDB(*dbUri, 10)
+	db, err := entropy.NewDB(dbUri, 10)
 	if err != nil {
 		log.Fatal(err)
 	}

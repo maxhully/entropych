@@ -1,0 +1,12 @@
+[Unit]
+Description=Entropych server
+After=network.target
+
+[Service]
+ExecStart=/home/entropych/server
+User=entropych
+Group=entropych
+EnvironmentFile=/etc/entropych/entropych.env
+
+[Install]
+WantedBy=multi-user.target
