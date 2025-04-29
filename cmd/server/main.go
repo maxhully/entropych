@@ -66,6 +66,17 @@ func errorResponse(w http.ResponseWriter, err error) {
 	http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 }
 
+func badRequest(w http.ResponseWriter, err error) {
+	log.Printf("sending 400 error: %s", err)
+	http.Error(w, "400 Bad Request", http.StatusBadRequest)
+}
+
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	// Clear the session cookie in case it has expired
+	entropy.ClearSessionCookie(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
 func (app *App) RenderTemplate(w http.ResponseWriter, r *http.Request, name string, data any) {
 	err := app.renderer.ExecuteTemplate(w, r, name, data)
 	if err != nil {
@@ -394,17 +405,6 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 	}
 	entropy.SaveSessionInCookie(w, session)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func badRequest(w http.ResponseWriter, err error) {
-	log.Printf("sending 400 error: %s", err)
-	http.Error(w, "400 Bad Request", http.StatusBadRequest)
-}
-
-func redirectToLogin(w http.ResponseWriter, r *http.Request) {
-	// Clear the session cookie in case it has expired
-	entropy.ClearSessionCookie(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
@@ -768,8 +768,9 @@ func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 
 func withSafeHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO: turn this on when TLS is on
-		// w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		if r.URL.Scheme == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; block-all-mixed-content; object-src 'none'")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
