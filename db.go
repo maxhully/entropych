@@ -906,7 +906,6 @@ func SaveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHe
 	}
 	contentTypes := header.Header["Content-Type"]
 	if len(contentTypes) != 1 {
-		// TODO: make this a 400?
 		return 0, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
 	}
 	contentType := contentTypes[0]

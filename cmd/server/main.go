@@ -656,6 +656,18 @@ func (f *updateProfileForm) Validate() {
 	}
 }
 
+func validateUpload(header *multipart.FileHeader) error {
+	contentTypes := header.Header["Content-Type"]
+	if len(contentTypes) != 1 {
+		return fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
+	}
+	contentType := contentTypes[0]
+	if contentType != "image/png" {
+		return fmt.Errorf("expected contentType to be image/png, got %q", contentType)
+	}
+	return nil
+}
+
 func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	var err error
 	conn := app.db.Get(r.Context())
@@ -674,6 +686,7 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		errorResponse(w, err)
+		return
 	}
 	var page updateProfilePage
 	page.User = user
@@ -695,7 +708,6 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, r, "user_profile.html", page)
 		return
 	}
-
 	defer r.MultipartForm.RemoveAll()
 	var file multipart.File
 	defer func() {
@@ -705,17 +717,20 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}()
 	var uploadID int64
 	file, header, err := r.FormFile("avatar")
-
 	if errors.Is(err, http.ErrMissingFile) {
 		uploadID = 0
 	} else if err != nil {
 		badRequest(w, err)
 		return
-	} else {
-		if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
-			errorResponse(w, err)
-			return
-		}
+	} else if err = validateUpload(header); err != nil {
+		page.Form.Errors["avatar"] = "Avatar must be a .png image."
+		app.RenderTemplate(w, r, "user_profile.html", page)
+		return
+	}
+
+	if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
+		errorResponse(w, err)
+		return
 	}
 	err = entropy.UpdateUserProfile(conn, user.Name, page.Form.DisplayName, page.Form.Bio, uploadID)
 	if err != nil {
@@ -749,6 +764,19 @@ func (app *App) ServeUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "max-age=31536000, public, immutable")
 	// TODO: should probably buffer this and handle errors?
 	io.Copy(w, blob)
+}
+
+func withSafeHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO: turn this on when TLS is on
+		// w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; block-all-mixed-content; object-src 'none'")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		// TODO: Permissions-Policy?
+		h.ServeHTTP(w, r)
+	})
 }
 
 func main() {
@@ -813,10 +841,13 @@ func main() {
 		csrf.FieldName("csrf_token"),
 		csrf.TrustedOrigins([]string{"localhost:7777"}),
 		csrf.Path("/"),
+		csrf.SameSite(csrf.SameSiteStrictMode),
+		csrf.HttpOnly(true),
+		csrf.Secure(true),
 	)
 	handler = csrfProtect(handler)
 	handler = handlers.CompressHandler(handler)
-	handler = entropy.SafeHeaderMiddleware(handler)
+	handler = withSafeHeaders(handler)
 	handler = http.MaxBytesHandler(handler, 1024*1024)
 	handler = handlers.LoggingHandler(os.Stdout, handler)
 	t()
