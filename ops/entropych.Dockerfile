@@ -6,4 +6,4 @@ RUN go mod download
 
 # TODO: make this depend on less context?
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build ./cmd/server
+RUN GOOS=linux GOARCH=amd64 go build ./cmd/server

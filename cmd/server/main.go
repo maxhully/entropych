@@ -9,8 +9,10 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +30,7 @@ import (
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/handlers"
 	"github.com/maxhully/entropy"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // Not sure how I feel about this. Is there a real point to having these Renderer and DB
@@ -797,6 +801,9 @@ func main() {
 		log.Fatal("ENTROPYCH_DB is required")
 	}
 
+	devMode := flag.Bool("dev", false, "Run in dev mode (listen on localhost, with plain HTTP)")
+	flag.Parse()
+
 	db, err := entropy.NewDB(dbUri, 10)
 	if err != nil {
 		log.Fatal(err)
@@ -830,12 +837,17 @@ func main() {
 
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
+	trustedOrigins := []string{"entropych.maxhully.net"}
+	if *devMode {
+		trustedOrigins = []string{"localhost:7777"}
+	}
+
 	var handler http.Handler
 	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	csrfProtect := csrf.Protect(
 		secretKey,
 		csrf.FieldName("csrf_token"),
-		csrf.TrustedOrigins([]string{"localhost:7777"}),
+		csrf.TrustedOrigins(trustedOrigins),
 		csrf.Path("/"),
 		csrf.SameSite(csrf.SameSiteStrictMode),
 		csrf.HttpOnly(true),
@@ -848,5 +860,27 @@ func main() {
 	handler = handlers.LoggingHandler(os.Stdout, handler)
 	t()
 
-	http.ListenAndServe(":7777", handler)
+	if *devMode {
+		log.Fatal(http.ListenAndServe(":7777", handler))
+	} else {
+		cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "golang-autocert")
+		if err := os.MkdirAll(cacheDir, 0700); err != nil {
+			log.Printf("warning: autocert.NewListener not using a cache: %v", err)
+		}
+		// Based on https://www.reddit.com/r/golang/comments/91qznj/cannot_get_autocert_to_work/
+		certManager := autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			Cache:      autocert.DirCache(cacheDir),
+			HostPolicy: autocert.HostWhitelist("entropych.maxhully.net"),
+		}
+		go http.ListenAndServe(":80", certManager.HTTPHandler(nil))
+		server := &http.Server{
+			Addr:    ":443",
+			Handler: handler,
+			TLSConfig: &tls.Config{
+				GetCertificate: certManager.GetCertificate,
+			},
+		}
+		log.Fatal(server.ListenAndServeTLS("", ""))
+	}
 }
