@@ -779,8 +779,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir("./static"))))
 
-	// TODO: Maybe I should wrap these handlers somehow so that they can just return an
-	// error, instead of calling errorResponse for every possible 500
 	mux.HandleFunc("GET /{$}", app.Homepage)
 	mux.HandleFunc("GET /about", app.About)
 
@@ -804,15 +802,14 @@ func main() {
 
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
+	var handler http.Handler
+	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	csrfProtect := csrf.Protect(
 		secretKey,
 		csrf.FieldName("csrf_token"),
 		csrf.TrustedOrigins([]string{"localhost:7777"}),
 		csrf.Path("/"),
 	)
-
-	var handler http.Handler
-	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	handler = csrfProtect(handler)
 	handler = handlers.CompressHandler(handler)
 	handler = entropy.SafeHeaderMiddleware(handler)

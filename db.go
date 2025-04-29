@@ -636,7 +636,7 @@ func getReactionCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) erro
 	})
 }
 
-func getParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+func getParentsForPosts(conn *sqlite.Conn, posts []Post) error {
 	query := `
 		select
 			post_reply.reply_post_id,
@@ -671,7 +671,7 @@ func getParentsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	})
 }
 
-func getReplyCountsForPosts(conn *sqlite.Conn, user *User, posts []Post) error {
+func getReplyCountsForPosts(conn *sqlite.Conn, posts []Post) error {
 	query := `
 		select
 			post_reply.post_id,
@@ -886,13 +886,13 @@ func DecoratePosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	if err := getReactionCountsForPosts(conn, user, posts); err != nil {
 		return err
 	}
-	if err := getReplyCountsForPosts(conn, user, posts); err != nil {
+	if err := getReplyCountsForPosts(conn, posts); err != nil {
 		return err
 	}
 	if err := distortPostsForUser(conn, user, posts); err != nil {
 		return err
 	}
-	if err := getParentsForPosts(conn, user, posts); err != nil {
+	if err := getParentsForPosts(conn, posts); err != nil {
 		return err
 	}
 	return nil
