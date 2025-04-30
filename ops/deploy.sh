@@ -25,7 +25,7 @@ mkdir -p /etc/entropych
 mkdir -p /home/entropych/versions
 EOL
 
-remote_binary_version="/home/entropych/versions/server-$(TZ=UTC date -u +"%s")-$(git rev-parse --short HEAD)"
+remote_binary_version="/home/entropych/versions/server-$(date +"%Y%m%d_%H%M%S")-$(git rev-parse --short HEAD)"
 
 # TODO: only do this if it changed, so systemd doesn't ask for a daemon-reload
 scp ops/entropych.service "$server_ssh:/etc/systemd/system/entropych.service"
