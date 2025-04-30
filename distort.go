@@ -38,7 +38,7 @@ func DistortContent(content string, graphDistance int) string {
 	// TODO: I think I need to make this subtler. The jump from 2 to 3 is crazy
 	p := min(float32(graphDistance-1)/float32(2*MaxDistortionLevel), 1.0)
 	if p == 0.0 {
-		p = 0.01
+		p = 0.005
 	}
 
 	// TODO: wrap the noise in <mark> tags in a different style?
