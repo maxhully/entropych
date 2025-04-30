@@ -18,6 +18,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"time"
@@ -94,14 +95,18 @@ func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <
 	return lines, errChan
 }
 
+var whitespace = regexp.MustCompile(`\s+`)
+
 func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
-	user, err := entropy.GetUserByName(conn, name)
+	// Replace whitespace with underscores for usernames
+	cleanName := whitespace.ReplaceAllString(name, "_")
+	user, err := entropy.GetUserByName(conn, cleanName)
 	if err != nil {
 		return nil, err
 	}
 	if user == nil {
 		// Use name as password for these bots
-		user, err = entropy.CreateUser(conn, name, name)
+		user, err = entropy.CreateUser(conn, cleanName, cleanName)
 		if err != nil {
 			return nil, err
 		}
