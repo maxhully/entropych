@@ -26,8 +26,8 @@ EOL
 remote_binary_version="/home/entropych/versions/server-$(TZ=UTC date -u +"%s")-$(git rev-parse --short HEAD)"
 
 # TODO: only do this if it changed, so systemd doesn't ask for a daemon-reload
-# scp ops/entropych.service "$server_ssh:/etc/systemd/system/entropych.service"
-# scp ops/entropych.env "$server_ssh:/etc/entropych/entropych.env"
+scp ops/entropych.service "$server_ssh:/etc/systemd/system/entropych.service"
+scp ops/entropych.env "$server_ssh:/etc/entropych/entropych.env"
 
 scp build/server "$server_ssh:$remote_binary_version"
 # TODO: embed this in the binary, so that it's deployed as part of the single step below
