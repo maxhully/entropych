@@ -26,7 +26,7 @@
                 {{csrf_field}}
                 <button class="post__react post__react--reacted"
                     title="You {{$reaction.Emoji}}'d this post">
-                    {{$reaction.Emoji}}
+                    <span class="emoji">{{$reaction.Emoji}}</span>
                     {{$reaction.Count}}
                 </button>
             </form>
@@ -34,7 +34,7 @@
             <form method="post" action="/p/{{$.PostID}}/react" class="post__reactions">
                 {{csrf_field}}
                 <button class="post__react">
-                    {{$reaction.Emoji}} {{$reaction.Count}}
+                    <span class="emoji">{{$reaction.Emoji}}</span> {{$reaction.Count}}
                 </button>
             </form>
             {{end}}
@@ -42,11 +42,15 @@
             {{else}}
             <form method="post" action="/p/{{.PostID}}/react" class="post__reactions">
                 {{csrf_field}}
-                <button class="post__react">❤️</button>
+                <button class="post__react">
+                    <span class="emoji">❤️</span>
+                </button>
             </form>
             {{end}}
             {{if .ReplyCount}}
-            <a href="{{.PostURL}}#replies" class="post__replies-link">💬 {{.ReplyCount}}</a>
+            <a href="{{.PostURL}}#replies" class="post__replies-link">
+                <span class="emoji">💬</span> {{.ReplyCount}}
+            </a>
             {{end}}
             <!-- Maybe move this below, where the reactions are? -->
             <a href="{{.PostURL}}" class="post__time">

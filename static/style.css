@@ -309,3 +309,9 @@ a:focus {
 .prose h2 {
     margin-top: 3rem;
 }
+
+/* Thanks to https://nolanlawson.com/2022/04/08/the-struggle-of-using-native-emoji-on-the-web/ */
+.emoji {
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+        "Noto Color Emoji", "EmojiOne Color", "Android Emoji", sans-serif;
+}
