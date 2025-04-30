@@ -12,8 +12,8 @@ import (
 
 const sessionIdCookieName = "id"
 
-func SaveSessionInCookie(w http.ResponseWriter, session *UserSession) {
-	cookie := http.Cookie{
+func (session *UserSession) ToCookie() *http.Cookie {
+	return &http.Cookie{
 		Name:     sessionIdCookieName,
 		Value:    hex.EncodeToString(session.SessionPublicID),
 		Path:     "/",
@@ -21,7 +21,6 @@ func SaveSessionInCookie(w http.ResponseWriter, session *UserSession) {
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
-	http.SetCookie(w, &cookie)
 }
 
 func ClearSessionCookie(w http.ResponseWriter) {

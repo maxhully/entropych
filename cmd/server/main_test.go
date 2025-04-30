@@ -1,9 +1,10 @@
 package main
 
 import (
-	"context"
+	"bytes"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -88,7 +89,7 @@ func TestSignUpUser(t *testing.T) {
 		t.Fatalf("expected 303 See Other, got %d", result.StatusCode)
 	}
 
-	conn := app.db.Get(context.TODO())
+	conn := app.db.Get(t.Context())
 	defer app.db.Put(conn)
 	user, err := entropy.GetUserByName(conn, "Max")
 	if err != nil {
@@ -120,7 +121,7 @@ func TestLogInUser(t *testing.T) {
 			defer app.db.Close()
 
 			{
-				conn := app.db.Get(context.TODO())
+				conn := app.db.Get(t.Context())
 				entropy.CreateUser(conn, "max", "secretpassword123")
 				app.db.Put(conn)
 			}
@@ -159,10 +160,44 @@ func TestUpdateProfile(t *testing.T) {
 	assert.Nil(t, err)
 	defer app.db.Close()
 
-	conn := app.db.Get(context.TODO())
+	var sess *entropy.UserSession
+	{
+		conn := app.db.Get(t.Context())
+		user, err := entropy.CreateUser(conn, "max", "pass123")
+		assert.Nil(t, err)
+		sess, err = entropy.CreateUserSession(conn, user.UserID)
+		app.db.Put(conn)
+	}
+
+	body := new(bytes.Buffer)
+	mw := multipart.NewWriter(body)
+	mw.WriteField("bio", "Hello!")
+	mw.Close()
+
+	h := entropy.WithUserContextMiddleware(app.db, http.HandlerFunc(app.UpdateProfile))
+
+	// First do a GET
+	r, _ := http.NewRequest(http.MethodGet, "/profile", nil)
+	r.AddCookie(sess.ToCookie())
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, r)
+	assert.Equal(t, w.Result().StatusCode, http.StatusOK)
+
+	// Then POST
+	r, _ = http.NewRequest(http.MethodPost, "/profile", body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.AddCookie(sess.ToCookie())
+	w = httptest.NewRecorder()
+
+	h.ServeHTTP(w, r)
+	assert.Equal(t, w.Result().StatusCode, http.StatusSeeOther)
+
+	conn := app.db.Get(t.Context())
 	defer app.db.Put(conn)
-
-	entropy.CreateUser(conn, "max", "pass123")
-
-	// TODO: update profile
+	user, err := entropy.GetUserByName(conn, "max")
+	assert.Nil(t, err)
+	assert.Equal(t, user.Bio, "Hello!")
 }
+
+// TODO: test with upload

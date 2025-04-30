@@ -77,7 +77,7 @@ func badRequest(w http.ResponseWriter, err error) {
 func redirectToLogin(w http.ResponseWriter, r *http.Request) {
 	// Clear the session cookie in case it has expired
 	entropy.ClearSessionCookie(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 func (app *App) RenderTemplate(w http.ResponseWriter, r *http.Request, name string, data any) {
@@ -321,7 +321,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	entropy.SaveSessionInCookie(w, session)
+	http.SetCookie(w, session.ToCookie())
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -406,7 +406,7 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	entropy.SaveSessionInCookie(w, session)
+	http.SetCookie(w, session.ToCookie())
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -683,7 +683,18 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		redirectToLogin(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	var page updateProfilePage
+	page.User = user
+	page.Form.Errors = make(map[string]string)
+	page.Form.DisplayName = user.DisplayName
+	page.Form.Bio = user.Bio
+	if r.Method == http.MethodGet {
+		app.RenderTemplate(w, r, "user_profile.html", page)
+		return
+	}
+
+	// Handling POST now
+	if err := r.ParseMultipartForm(maxRequestBytes); err != nil {
 		if _, ok := err.(*http.MaxBytesError); ok {
 			http.Error(w, "413 request entity too large", http.StatusRequestEntityTooLarge)
 			return
@@ -691,49 +702,42 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, err)
 		return
 	}
-	var page updateProfilePage
-	page.User = user
-	page.Form.Errors = make(map[string]string)
-	page.Form.DisplayName = user.DisplayName
-	page.Form.Bio = user.Bio
 	if v := r.PostForm.Get("display_name"); v != "" {
 		page.Form.DisplayName = v
 	}
 	if v := r.PostForm.Get("bio"); v != "" {
 		page.Form.Bio = v
 	}
-	if r.Method == http.MethodGet {
-		app.RenderTemplate(w, r, "user_profile.html", page)
-		return
-	}
 	// TODO: validate avatar upload (must be .png)
 	if page.Form.Validate(); len(page.Form.Errors) > 0 {
 		app.RenderTemplate(w, r, "user_profile.html", page)
 		return
 	}
-	defer r.MultipartForm.RemoveAll()
-	var file multipart.File
-	defer func() {
-		if file != nil {
-			file.Close()
-		}
-	}()
+
 	var uploadID int64
 	file, header, err := r.FormFile("avatar")
-	if errors.Is(err, http.ErrMissingFile) {
+	if errors.Is(err, http.ErrMissingFile) || errors.Is(err, http.ErrNotMultipart) {
 		uploadID = 0
 	} else if err != nil {
 		badRequest(w, err)
 		return
-	} else if err = validateUpload(header); err != nil {
-		page.Form.Errors["avatar"] = "Avatar must be a .png image."
-		app.RenderTemplate(w, r, "user_profile.html", page)
-		return
-	}
-
-	if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
-		errorResponse(w, err)
-		return
+	} else {
+		defer r.MultipartForm.RemoveAll()
+		defer func() {
+			if file != nil {
+				file.Close()
+			}
+		}()
+		// Handle uploaded file in this else block.
+		if err = validateUpload(header); err != nil {
+			page.Form.Errors["avatar"] = "Avatar must be a .png image."
+			app.RenderTemplate(w, r, "user_profile.html", page)
+			return
+		}
+		if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
+			errorResponse(w, err)
+			return
+		}
 	}
 	err = entropy.UpdateUserProfile(conn, user.Name, page.Form.DisplayName, page.Form.Bio, uploadID)
 	if err != nil {
@@ -782,6 +786,8 @@ func withSafeHeaders(h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 	})
 }
+
+const maxRequestBytes = 1024 * 1024
 
 func main() {
 	t := timer("startup")
@@ -856,7 +862,7 @@ func main() {
 	handler = csrfProtect(handler)
 	handler = handlers.CompressHandler(handler)
 	handler = withSafeHeaders(handler)
-	handler = http.MaxBytesHandler(handler, 1024*1024)
+	handler = http.MaxBytesHandler(handler, maxRequestBytes)
 	handler = handlers.LoggingHandler(os.Stdout, handler)
 	t()
 
