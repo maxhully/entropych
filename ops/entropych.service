@@ -9,8 +9,6 @@ User=entropych
 Group=entropych
 EnvironmentFile=/etc/entropych/entropych.env
 WorkingDirectory=/home/entropych
-StandardOutput=file:/home/entropych/entropych.log
-StandardError=file:/home/entropych/entropych_error.log
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
