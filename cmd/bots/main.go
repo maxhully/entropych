@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -97,9 +98,9 @@ func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <
 
 var whitespace = regexp.MustCompile(`\s+`)
 
+// Also cleans the username so that it's lowercase with underscores for whitespace
 func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
-	// Replace whitespace with underscores for usernames
-	cleanName := whitespace.ReplaceAllString(name, "_")
+	cleanName := strings.ToLower(whitespace.ReplaceAllString(name, "_"))
 	user, err := entropy.GetUserByName(conn, cleanName)
 	if err != nil {
 		return nil, err
