@@ -1,10 +1,8 @@
 package avatargen
 
 import (
-	"bytes"
-	"image"
 	"image/color"
-	"image/png"
+	"io"
 	"math"
 	"math/rand/v2"
 
@@ -149,7 +147,7 @@ func (a *ellipticalArc) Path() *canvas.Path {
 	)
 }
 
-func GenerateAvatar() (image.Image, error) {
+func GenerateAvatar() *canvas.Canvas {
 	c := canvas.New(256, 256)
 	ctx := canvas.NewContext(c)
 
@@ -168,10 +166,11 @@ func GenerateAvatar() (image.Image, error) {
 	ctx.SetFillColor(face.fg)
 	ctx.DrawPath(face.mouthX+face.mouth.rx, face.mouthY, face.mouth.Path())
 
+	return c
+}
+
+func GenerateAvatarPNG(w io.Writer) error {
+	c := GenerateAvatar()
 	pngWriter := renderers.PNG()
-	buf := new(bytes.Buffer)
-	if err := pngWriter(buf, c); err != nil {
-		return nil, err
-	}
-	return png.Decode(buf)
+	return pngWriter(w, c)
 }

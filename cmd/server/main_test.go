@@ -92,12 +92,9 @@ func TestSignUpUser(t *testing.T) {
 	conn := app.db.Get(t.Context())
 	defer app.db.Put(conn)
 	user, err := entropy.GetUserByName(conn, "Max")
-	if err != nil {
-		t.Error(err)
-	}
-	if user.Name != "Max" {
-		t.Errorf("expected Max, got %s", user.Name)
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, user.Name, "Max")
+	assert.NotEqual(t, user.AvatarUploadID, 0, "Expected default avatar to be generated")
 }
 
 func TestLogInUser(t *testing.T) {

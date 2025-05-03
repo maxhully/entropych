@@ -102,7 +102,7 @@ func TestUploads(t *testing.T) {
 	conn := db.Get(context.TODO())
 	defer db.Put(conn)
 
-	uploadID, err := saveUpload(conn, "hello.txt", "text/plain", []byte("hello, world!"))
+	uploadID, err := SaveUpload(conn, "text/plain", []byte("hello, world!"))
 	assert.Nil(t, err)
 	assert.Greater(t, uploadID, int64(0))
 

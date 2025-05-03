@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
@@ -30,6 +31,7 @@ import (
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/handlers"
 	"github.com/maxhully/entropy"
+	"github.com/maxhully/entropy/avatargen"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -292,6 +294,8 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	// TODO: handle when user is already logged in
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
+	var err error
+	sqlitex.Save(conn)(&err)
 
 	form := newSignUpForm()
 	if r.Method != http.MethodPost {
@@ -310,9 +314,22 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 		app.RenderTemplate(w, r, "signup.html", form)
 		return
 	}
-
 	user, err := entropy.CreateUser(conn, form.Name, form.Password)
 	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	buf := new(bytes.Buffer)
+	if err = avatargen.GenerateAvatarPNG(buf); err != nil {
+		errorResponse(w, err)
+		return
+	}
+	uploadID, err := entropy.SaveUpload(conn, "image/png", buf.Bytes())
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if err = entropy.UpdateUserProfile(conn, user.Name, "", "", uploadID); err != nil {
 		errorResponse(w, err)
 		return
 	}
@@ -734,7 +751,18 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 			app.RenderTemplate(w, r, "user_profile.html", page)
 			return
 		}
-		if uploadID, err = entropy.SaveUpload(conn, file, header); err != nil {
+		var contents []byte
+		if contents, err = io.ReadAll(file); err != nil {
+			errorResponse(w, err)
+			return
+		}
+		contentTypes := header.Header["Content-Type"]
+		if len(contentTypes) != 1 {
+			badRequest(w, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header))
+			return
+		}
+		contentType := contentTypes[0]
+		if uploadID, err = entropy.SaveUpload(conn, contentType, contents); err != nil {
 			errorResponse(w, err)
 			return
 		}

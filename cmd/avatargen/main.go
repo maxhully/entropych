@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image/png"
 	"log"
 	"os"
 
@@ -10,11 +9,10 @@ import (
 )
 
 func main() {
-	image, err := avatargen.GenerateAvatar()
-	if err != nil {
+	f, _ := os.Create("avatargen_out.png")
+	defer f.Close()
+	if err := avatargen.GenerateAvatarPNG(f); err != nil {
 		log.Fatal(err)
 	}
-	f, _ := os.Create("avatargen_out.png")
-	png.Encode(f, image)
 	fmt.Println("Created avatargen_out.png")
 }

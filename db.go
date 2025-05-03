@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"mime"
-	"mime/multipart"
 	"net/url"
 	"time"
 
@@ -898,29 +897,6 @@ func DecoratePosts(conn *sqlite.Conn, user *User, posts []Post) error {
 	return nil
 }
 
-// TODO: resizing images...
-func SaveUpload(conn *sqlite.Conn, file multipart.File, header *multipart.FileHeader) (int64, error) {
-	contents, err := io.ReadAll(file)
-	if err != nil {
-		return 0, err
-	}
-	contentTypes := header.Header["Content-Type"]
-	if len(contentTypes) != 1 {
-		return 0, fmt.Errorf("unexpected mime header (zero or >1 content types?): %+v", header)
-	}
-	contentType := contentTypes[0]
-	stem, err := randomHex()
-	if err != nil {
-		return 0, err
-	}
-	exts, err := mime.ExtensionsByType(contentType)
-	if err != nil {
-		return 0, err
-	}
-	filename := stem + exts[0]
-	return saveUpload(conn, filename, contentType, contents)
-}
-
 func randomHex() (string, error) {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
@@ -930,9 +906,18 @@ func randomHex() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func saveUpload(conn *sqlite.Conn, filename string, contentType string, contents []byte) (int64, error) {
+func SaveUpload(conn *sqlite.Conn, contentType string, contents []byte) (int64, error) {
+	stem, err := randomHex()
+	if err != nil {
+		return 0, err
+	}
+	exts, err := mime.ExtensionsByType(contentType)
+	if err != nil {
+		return 0, err
+	}
+	filename := stem + exts[0]
 	query := "insert into upload (filename, created_at, content_type, contents) values (?, ?, ?, ?)"
-	err := sqlitex.Exec(conn, query, nil, filename, utcNow().Unix(), contentType, contents)
+	err = sqlitex.Exec(conn, query, nil, filename, utcNow().Unix(), contentType, contents)
 	if err != nil {
 		return 0, err
 	}

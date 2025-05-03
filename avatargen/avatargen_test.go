@@ -8,9 +8,8 @@ import (
 )
 
 func TestGenerateAvatar(t *testing.T) {
-	result, err := GenerateAvatar()
-	assert.Nil(t, err)
-	assert.NotNil(t, result)
+	canvas := GenerateAvatar()
+	assert.False(t, canvas.Empty())
 }
 
 func TestMod(t *testing.T) {
