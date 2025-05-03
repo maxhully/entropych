@@ -155,8 +155,16 @@ func main() {
 	conn := db.Get(context.Background())
 	defer db.Put(conn)
 
+	processDialogueLines(lines, conn, maxSleep, shouldPost)
+
+	for err := range errChan {
+		fmt.Printf("error: %v\n", err)
+	}
+}
+
+func processDialogueLines(lines <-chan dialogueLine, conn *sqlite.Conn, maxSleep int, shouldPost bool) {
 	linesByCharacter := make(map[string]int)
-	charactersInScene := make(map[int64]bool)
+	var prevLineUserID int64
 	var currentScene []string // (act, scene) pair
 
 	// We close both channels when an error happens, so we can safely range over these
@@ -173,7 +181,7 @@ func main() {
 
 		scene := []string{line.act, line.scene}
 		if currentScene == nil || !slices.Equal(scene, currentScene) {
-			clear(charactersInScene)
+			prevLineUserID = 0
 			currentScene = scene
 		}
 
@@ -182,12 +190,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("could not get or create user %v: %v", line.character, err)
 		}
-		charactersInScene[user.UserID] = true
 
-		// Have both users follow each other
-		for otherUserID := range charactersInScene {
-			entropy.FollowUser(conn, user.UserID, otherUserID)
-			entropy.FollowUser(conn, otherUserID, user.UserID)
+		// Have this user follow the character who last spoke
+		for prevLineUserID != user.UserID {
+			if prevLineUserID != 0 {
+				entropy.FollowUser(conn, user.UserID, prevLineUserID)
+			}
+			prevLineUserID = user.UserID
 		}
 
 		if !shouldPost {
@@ -213,11 +222,6 @@ func main() {
 	if lineToPost.dialogue != "" {
 		postDialogueLine(conn, &lineToPost)
 	}
-
-	for err := range errChan {
-		fmt.Printf("error: %v\n", err)
-	}
-
 	for k, v := range linesByCharacter {
 		fmt.Printf("%s: %d\n", k, v)
 	}
