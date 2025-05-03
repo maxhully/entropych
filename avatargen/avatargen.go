@@ -2,7 +2,6 @@ package avatargen
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -82,9 +81,31 @@ type face struct {
 	mouthY        float64
 }
 
+func randInRange(min float64, max float64) float64 {
+	return rand.Float64()*(max-min) + min
+}
+
+const (
+	circle = 0
+	smile  = 1
+	frown  = 2
+)
+
+func randArc(rx, ry float64) ellipticalArc {
+	var theta1 float64
+	switch face := rand.IntN(3); face {
+	case circle:
+		theta1 = 360.0
+	case smile:
+		theta1 = -180.0
+	case frown:
+		theta1 = 180.0
+	}
+	return ellipticalArc{rx, ry, 0.0, 0.0, theta1}
+}
+
 func randomFace(width, height float64) face {
 	l := rand.Float64()*0.7 + 0.2
-
 	bg := hsl{
 		rand.Float64(),
 		rand.Float64()*0.2 + 0.8,
@@ -95,17 +116,29 @@ func randomFace(width, height float64) face {
 		0.95,
 		math.Pow(l, 3.0),
 	}
+	eyeShape := randArc(randInRange(0.025, 0.2)*width, randInRange(0.025, 0.15)*height)
+	// TODO: do I need to consider eyeShape.ry when chooosing mouth.ry?
+	mouth := randArc(randInRange(0.025, 0.6)*width, randInRange(0.025, 0.4)*height)
+
+	// TODO: gotta work on padding and eyeSeparation. A debug visualization showing the
+	// rectangle of possible values would be good
+	// TODO: I think I want the mouth to overflow more often
+	leftEyeX := rand.Float64()*(width-eyeShape.rx*2) + eyeShape.rx
+	eyeSeparation := rand.Float64()*(width-leftEyeX-4*eyeShape.rx) + 2*eyeShape.rx
+	eyeY := (width+eyeShape.ry)*0.2 + rand.Float64()*0.8*(width-eyeShape.ry)
+	// TODO: reserve enough space for the case when the mouth is a circle
+	ySpace := eyeY - eyeShape.ry - mouth.ry
+	mouthY := rand.Float64()*(ySpace-mouth.ry) + mouth.ry
 	return face{
 		bg:            hslToRGB(bg),
 		fg:            hslToRGB(fg),
-		eyeShape:      ellipticalArc{0.05 * width, 0.05 * height, 0.0, 0.0, 180.0},
-		mouth:         ellipticalArc{0.1 * width, 0.1 * height, 0.0, 0.0, -180.0},
-		leftEyeX:      0.25 * width,
-		eyeSeparation: 0.5 * width,
-		eyeY:          0.7 * height,
-		// Interestingly, this isn't the center:
-		mouthX: 0.5 * width,
-		mouthY: 0.3 * height,
+		eyeShape:      eyeShape,
+		mouth:         mouth,
+		leftEyeX:      leftEyeX,
+		eyeSeparation: eyeSeparation,
+		eyeY:          eyeY,
+		mouthX:        width * rand.Float64(),
+		mouthY:        mouthY,
 	}
 }
 
@@ -121,17 +154,19 @@ func GenerateAvatar() (image.Image, error) {
 	ctx := canvas.NewContext(c)
 
 	face := randomFace(256, 256)
-	fmt.Printf("face: %#v\n", face)
+	// fmt.Printf("face: %#v\n", face)
 
 	ctx.SetFillColor(face.bg)
 	ctx.DrawPath(0.0, 0.0, canvas.Rectangle(256, 256))
 
+	// Adding rx so that the x coordinate is in the center of the ellipse
+	// (probably need a similar adjustment for Y)
 	ctx.SetFillColor(face.fg)
-	ctx.DrawPath(face.leftEyeX, face.eyeY, face.eyeShape.Path())
+	ctx.DrawPath(face.leftEyeX+face.eyeShape.rx, face.eyeY, face.eyeShape.Path())
 	ctx.SetFillColor(face.fg)
-	ctx.DrawPath(face.leftEyeX+face.eyeSeparation, face.eyeY, face.eyeShape.Path())
+	ctx.DrawPath(face.leftEyeX+face.eyeSeparation+face.eyeShape.rx, face.eyeY, face.eyeShape.Path())
 	ctx.SetFillColor(face.fg)
-	ctx.DrawPath(face.mouthX, face.mouthY, face.mouth.Path())
+	ctx.DrawPath(face.mouthX+face.mouth.rx, face.mouthY, face.mouth.Path())
 
 	pngWriter := renderers.PNG()
 	buf := new(bytes.Buffer)
