@@ -98,17 +98,23 @@ func TestSignUpUser(t *testing.T) {
 }
 
 func TestSignUpUserValidation(t *testing.T) {
+	longString := strings.Repeat("M", 200)
 	var testCases = []struct {
 		name                 string
+		password             string
 		expectedErrorMessage string
 	}{
-		{"", "Name is required"},
-		{"max hully", "Name must not have any spaces in it"},
-		{"max", "A user with this name already exists"},
+		{"", "pass", "Name is required"},
+		{"maxh", "", "Password is required"},
+		{"max hully", "pass", "Name must not have any spaces in it"},
+		{"max", "pass", "A user with this name already exists"},
+		{longString, "pass", "Name is too long"},
+		{"maxh", longString, "Password is too long"},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(fmt.Sprintf("%q", testCase.name), func(t *testing.T) {
+		name := fmt.Sprintf("%q", testCase.name[:min(len(testCase.name), 16)])
+		t.Run(name, func(t *testing.T) {
 			app, err := setUpTestApp(t)
 			if err != nil {
 				t.Fatal(err)
@@ -122,7 +128,7 @@ func TestSignUpUserValidation(t *testing.T) {
 
 			form := url.Values{}
 			form.Add("name", testCase.name)
-			form.Add("password", "secretpassword456")
+			form.Add("password", testCase.password)
 
 			r, _ := http.NewRequest(http.MethodPost, "/signup", strings.NewReader(form.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -162,13 +168,19 @@ func TestLogInUser(t *testing.T) {
 				app.db.Put(conn)
 			}
 
+			r, _ := http.NewRequest(http.MethodGet, "/login", nil)
+			w := httptest.NewRecorder()
+
+			app.LogIn(w, r)
+			assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+
 			form := url.Values{}
 			form.Add("name", testCase.name)
 			form.Add("password", testCase.password)
 
-			r, _ := http.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+			r, _ = http.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			w := httptest.NewRecorder()
+			w = httptest.NewRecorder()
 
 			app.LogIn(w, r)
 
