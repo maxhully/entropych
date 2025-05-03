@@ -2,6 +2,7 @@ package avatargen
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -60,10 +61,28 @@ func hslToRGB(c hsl) color.Color {
 	}
 }
 
-func GenerateAvatar() (image.Image, error) {
-	c := canvas.New(256, 256)
-	ctx := canvas.NewContext(c)
+type ellipticalArc struct {
+	rx     float64
+	ry     float64
+	rot    float64
+	theta0 float64
+	theta1 float64
+}
 
+type face struct {
+	bg       color.Color
+	fg       color.Color
+	eyeShape ellipticalArc
+	mouth    ellipticalArc
+	// In [0.0, 1.0]:
+	leftEyeX      float64
+	eyeSeparation float64
+	eyeY          float64
+	mouthX        float64
+	mouthY        float64
+}
+
+func randomFace(width, height float64) face {
 	l := rand.Float64()*0.7 + 0.2
 
 	bg := hsl{
@@ -76,12 +95,43 @@ func GenerateAvatar() (image.Image, error) {
 		0.95,
 		math.Pow(l, 3.0),
 	}
+	return face{
+		bg:            hslToRGB(bg),
+		fg:            hslToRGB(fg),
+		eyeShape:      ellipticalArc{0.05 * width, 0.05 * height, 0.0, 0.0, 180.0},
+		mouth:         ellipticalArc{0.1 * width, 0.1 * height, 0.0, 0.0, -180.0},
+		leftEyeX:      0.25 * width,
+		eyeSeparation: 0.5 * width,
+		eyeY:          0.7 * height,
+		// Interestingly, this isn't the center:
+		mouthX: 0.5 * width,
+		mouthY: 0.3 * height,
+	}
+}
 
-	ctx.SetFillColor(hslToRGB(bg))
+// Maybe eyeShape and mouthShape should just be closures?
+func (a *ellipticalArc) Path() *canvas.Path {
+	return canvas.EllipticalArc(
+		a.rx, a.ry, a.rot, a.theta0, a.theta1,
+	)
+}
+
+func GenerateAvatar() (image.Image, error) {
+	c := canvas.New(256, 256)
+	ctx := canvas.NewContext(c)
+
+	face := randomFace(256, 256)
+	fmt.Printf("face: %#v\n", face)
+
+	ctx.SetFillColor(face.bg)
 	ctx.DrawPath(0.0, 0.0, canvas.Rectangle(256, 256))
 
-	ctx.SetFillColor(hslToRGB(fg))
-	ctx.DrawPath(50.0, 50.0, canvas.Ellipse(10.0, 10.0))
+	ctx.SetFillColor(face.fg)
+	ctx.DrawPath(face.leftEyeX, face.eyeY, face.eyeShape.Path())
+	ctx.SetFillColor(face.fg)
+	ctx.DrawPath(face.leftEyeX+face.eyeSeparation, face.eyeY, face.eyeShape.Path())
+	ctx.SetFillColor(face.fg)
+	ctx.DrawPath(face.mouthX, face.mouthY, face.mouth.Path())
 
 	pngWriter := renderers.PNG()
 	buf := new(bytes.Buffer)
