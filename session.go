@@ -30,6 +30,8 @@ func ClearSessionCookie(w http.ResponseWriter) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
+		// http.Cookie says this means to expire it now:
+		MaxAge:   -1,
 		SameSite: http.SameSiteStrictMode,
 	}
 	http.SetCookie(w, &cookie)

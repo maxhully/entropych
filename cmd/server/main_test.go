@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -203,6 +204,60 @@ func TestLogInUser(t *testing.T) {
 	}
 }
 
+func TestLogOut(t *testing.T) {
+	app, err := setUpTestApp(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.db.Close()
+
+	{
+		conn := app.db.Get(t.Context())
+		entropy.CreateUser(conn, "max", "secretpassword123")
+		app.db.Put(conn)
+	}
+
+	form := url.Values{}
+	form.Add("name", "max")
+	form.Add("password", "secretpassword123")
+
+	r, _ := http.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	app.LogIn(w, r)
+
+	result := w.Result()
+	cookies := result.Cookies()
+	assert.Equal(t, http.StatusSeeOther, result.StatusCode)
+	assert.Equal(t, 1, len(cookies))
+	assert.Equal(t, "id", cookies[0].Name)
+
+	sessionID, err := hex.DecodeString(cookies[0].Value)
+	assert.Nil(t, err)
+
+	r, _ = http.NewRequest(http.MethodPost, "/logout", nil)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(cookies[0])
+	w = httptest.NewRecorder()
+
+	h := entropy.WithUserContextMiddleware(app.db, http.HandlerFunc(app.LogOut))
+	h.ServeHTTP(w, r)
+
+	result = w.Result()
+	cookies = result.Cookies()
+	assert.Equal(t, 1, len(cookies))
+	assert.Equal(t, "id", cookies[0].Name)
+	assert.Equal(t, "", cookies[0].Value)
+	assert.Equal(t, -1, cookies[0].MaxAge)
+
+	conn := app.db.Get(t.Context())
+	defer app.db.Put(conn)
+	user, err := entropy.GetUserFromSessionPublicID(conn, sessionID)
+	assert.Nil(t, err)
+	assert.Nil(t, user)
+}
+
 func TestUpdateProfile(t *testing.T) {
 	app, err := setUpTestApp(t)
 	assert.Nil(t, err)
@@ -213,8 +268,8 @@ func TestUpdateProfile(t *testing.T) {
 	{
 		conn := app.db.Get(t.Context())
 		user, err := entropy.CreateUser(conn, "max", "pass123")
-		originalAvatarUploadID = user.AvatarUploadID
 		assert.Nil(t, err)
+		originalAvatarUploadID = user.AvatarUploadID
 		sess, err = entropy.CreateUserSession(conn, user.UserID)
 		app.db.Put(conn)
 	}
