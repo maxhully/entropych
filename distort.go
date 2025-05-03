@@ -17,6 +17,8 @@ func randomContentRune() rune {
 	// 25A0 — 25FF	Geometric Shapes
 	// 2600 — 26FF	Miscellaneous Symbols
 	// 2700 — 27BF	Dingbats
+	//
+	// Could consider dropping Miscellaneous Symbols in favor of arrows or math symbols.
 	if mathrand.Float32() < 0.3 {
 		minRune = 0x2580
 		maxRune = 0x27BF
