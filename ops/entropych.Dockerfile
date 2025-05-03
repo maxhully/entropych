@@ -8,3 +8,4 @@ RUN go mod download
 COPY . .
 RUN GOOS=linux GOARCH=amd64 go build ./cmd/server
 RUN GOOS=linux GOARCH=amd64 go build ./cmd/bots
+RUN GOOS=linux GOARCH=amd64 go build ./cmd/backfill_avatars

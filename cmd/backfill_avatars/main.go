@@ -24,8 +24,9 @@ import (
 
 func main() {
 	var dbFilename string
-
 	flag.StringVar(&dbFilename, "db", "test.db", "Filename of the SQLite database to connect to")
+	flag.Parse()
+
 	db, err := entropy.NewDB(dbFilename, 10)
 	if err != nil {
 		log.Fatal(err)

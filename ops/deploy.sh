@@ -15,6 +15,7 @@ fi
 ssh -q -T "$server_ssh" <<EOL
 id -u entropych >/dev/null 2>&1 || useradd -m entropych
 mkdir -p /etc/entropych
+mkdir -p /home/entropych/bin
 mkdir -p /home/entropych/versions && chown -R entropych:entropych /home/entropych
 EOL
 
@@ -24,7 +25,8 @@ rsync --progress --checksum ops/entropych.service "$server_ssh:/etc/systemd/syst
 rsync --progress --checksum ops/entropych.env "$server_ssh:/etc/entropych/entropych.env"
 
 rsync --progress build/server "$server_ssh:$remote_binary_version"
-rsync --progress build/bots "$server_ssh:/home/entropych/bots"
+rsync --progress build/bots "$server_ssh:/home/entropych/bin/bots"
+rsync --progress build/backfill_avatars "$server_ssh:/home/entropych/bin/backfill_avatars"
 # TODO: embed this in the binary, so that it's deployed as part of the single step below
 rsync -rv --progress --exclude=".DS_Store" ./static/ "$server_ssh:/home/entropych/static"
 # shellcheck disable=SC2087
