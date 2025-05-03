@@ -158,13 +158,16 @@ func TestUpdateProfile(t *testing.T) {
 	defer app.db.Close()
 
 	var sess *entropy.UserSession
+	var originalAvatarUploadID int64
 	{
 		conn := app.db.Get(t.Context())
 		user, err := entropy.CreateUser(conn, "max", "pass123")
+		originalAvatarUploadID = user.AvatarUploadID
 		assert.Nil(t, err)
 		sess, err = entropy.CreateUserSession(conn, user.UserID)
 		app.db.Put(conn)
 	}
+	assert.NotEqual(t, originalAvatarUploadID, 0)
 
 	body := new(bytes.Buffer)
 	mw := multipart.NewWriter(body)
@@ -195,6 +198,8 @@ func TestUpdateProfile(t *testing.T) {
 	user, err := entropy.GetUserByName(conn, "max")
 	assert.Nil(t, err)
 	assert.Equal(t, user.Bio, "Hello!")
+	// We shouldn't change the avatar, since we didn't upload anything
+	assert.Equal(t, user.AvatarUploadID, originalAvatarUploadID)
 }
 
 // TODO: test with upload

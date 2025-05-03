@@ -13,5 +13,5 @@ func TestGenerateAvatar(t *testing.T) {
 }
 
 func TestMod(t *testing.T) {
-	assert.Equal(t, math.Mod(1.5, 1.0), 0.5)
+	assert.Equal(t, 0.5, math.Mod(1.5, 1.0))
 }

@@ -99,6 +99,8 @@ func randArc(rx, ry float64) ellipticalArc {
 	case frown:
 		theta1 = 180.0
 	}
+	// TODO: the rot and theta0 parameters don't work the way I expect them to...
+	// Need to debug that.
 	return ellipticalArc{rx, ry, 0.0, 0.0, theta1}
 }
 
