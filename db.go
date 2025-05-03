@@ -777,6 +777,14 @@ func GetUserFromSessionPublicID(conn *sqlite.Conn, sessionPublicID []byte) (*Use
 	return user, err
 }
 
+func ExpireSession(conn *sqlite.Conn, sessionPublicID []byte) error {
+	query := `
+		update user_session
+		set expiration_time = ?
+		where session_public_id = ?`
+	return sqlitex.Exec(conn, query, nil, utcNow().Unix(), sessionPublicID)
+}
+
 func FollowUser(conn *sqlite.Conn, userID int64, followedUserID int64) error {
 	if userID == followedUserID {
 		return fmt.Errorf("userID %d cannot follow itself", userID)

@@ -431,7 +431,23 @@ func (app *App) LogIn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) LogOut(w http.ResponseWriter, r *http.Request) {
+	sessionPublicID, err := entropy.GetSessionPublicIdFromCookie(r)
+	if err != nil {
+		errorResponse(w, err)
+		return
+	}
+	if sessionPublicID == nil {
+		// Not logged in; just do nothing
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	conn := app.db.Get(r.Context())
+	defer app.db.Put(conn)
 	entropy.ClearSessionCookie(w)
+	if err = entropy.ExpireSession(conn, sessionPublicID); err != nil {
+		errorResponse(w, err)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

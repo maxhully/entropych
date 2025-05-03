@@ -35,7 +35,7 @@ func ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &cookie)
 }
 
-func GetUserIfLoggedIn(conn *sqlite.Conn, r *http.Request) (*User, error) {
+func GetSessionPublicIdFromCookie(r *http.Request) ([]byte, error) {
 	cookies := r.CookiesNamed(sessionIdCookieName)
 	if len(cookies) == 0 {
 		return nil, nil
@@ -43,8 +43,13 @@ func GetUserIfLoggedIn(conn *sqlite.Conn, r *http.Request) (*User, error) {
 	if len(cookies) > 1 {
 		return nil, fmt.Errorf("expected 1 cookie with name %#v, got %d", sessionIdCookieName, len(cookies))
 	}
-	sessionPublicID, err := hex.DecodeString(cookies[0].Value)
+	return hex.DecodeString(cookies[0].Value)
+}
+
+func getUserIfLoggedIn(conn *sqlite.Conn, r *http.Request) (*User, error) {
+	sessionPublicID, err := GetSessionPublicIdFromCookie(r)
 	if err != nil {
+		// TODO: Maybe should just clear the session cookie and continue
 		return nil, err
 	}
 	// TODO: handle extending the session
@@ -66,7 +71,7 @@ func WithUserContextMiddleware(db *DB, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn := db.GetReadOnly(r.Context())
 		defer db.PutReadOnly(conn)
-		user, err := GetUserIfLoggedIn(conn, r)
+		user, err := getUserIfLoggedIn(conn, r)
 		if err != nil {
 			errorResponse(w, err)
 			return
