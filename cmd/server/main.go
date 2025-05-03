@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -266,12 +267,14 @@ func newSignUpForm() *SignUpForm {
 
 func (f *SignUpForm) Validate(conn *sqlite.Conn) error {
 	// Max length for username and password
-	const maxLength = 256
+	const maxLength = 128
 
 	if len(f.Name) == 0 {
 		f.Errors["name"] = "Name is required"
 	} else if len(f.Name) > maxLength {
 		f.Errors["name"] = fmt.Sprintf("Name is too long (max %d characters)", maxLength)
+	} else if strings.ContainsFunc(f.Name, unicode.IsSpace) {
+		f.Errors["name"] = "Name must not have any spaces in it"
 	} else {
 		existingUserWithName, err := entropy.GetUserByName(conn, f.Name)
 		if err != nil {

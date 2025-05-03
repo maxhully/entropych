@@ -97,6 +97,45 @@ func TestSignUpUser(t *testing.T) {
 	assert.NotEqual(t, user.AvatarUploadID, 0, "Expected default avatar to be generated")
 }
 
+func TestSignUpUserValidation(t *testing.T) {
+	var testCases = []struct {
+		name                 string
+		expectedErrorMessage string
+	}{
+		{"", "Name is required"},
+		{"max hully", "Name must not have any spaces in it"},
+		{"max", "A user with this name already exists"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%q", testCase.name), func(t *testing.T) {
+			app, err := setUpTestApp(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer app.db.Close()
+
+			// So that the user already exists
+			conn := app.db.Get(t.Context())
+			entropy.CreateUser(conn, "max", "secretpassword123")
+			app.db.Put(conn)
+
+			form := url.Values{}
+			form.Add("name", testCase.name)
+			form.Add("password", "secretpassword456")
+
+			r, _ := http.NewRequest(http.MethodPost, "/signup", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			app.SignUpUser(w, r)
+
+			result := w.Result()
+			assert.Equal(t, http.StatusOK, result.StatusCode)
+			checkBodyContains(t, result, testCase.expectedErrorMessage)
+		})
+	}
+}
+
 func TestLogInUser(t *testing.T) {
 	var testCases = []struct {
 		name                 string
