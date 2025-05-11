@@ -836,10 +836,22 @@ func withSafeHeaders(h http.Handler) http.Handler {
 
 const maxRequestBytes = 1024 * 1024
 
-func main() {
-	t := timer("startup")
+// TODO: could convert devMode/behindProxy/listenTLS to a "mode" enum with 3 options
+type Config struct {
+	secretKey   []byte
+	dbUri       string
+	devMode     bool
+	behindProxy bool
+	listenTLS   bool   // listen on ports 80 and 443 and serve TLS using autocert
+	addr        string // address to listen on, if not in devMode and not serving TLS
+}
+
+func parseConfig() Config {
 	secretKeyHex := os.Getenv("ENTROPYCH_SECRET_KEY")
 	dbUri := os.Getenv("ENTROPYCH_DB")
+	// The address to listen on
+	addr := os.Getenv("ENTROPYCH_ADDR")
+	_, behindProxy := os.LookupEnv("ENTROPYCH_BEHIND_PROXY")
 	if secretKeyHex == "" {
 		log.Fatal("ENTROPYCH_SECRET_KEY is required")
 	}
@@ -857,7 +869,32 @@ func main() {
 	devMode := flag.Bool("dev", false, "Run in dev mode (listen on localhost, with plain HTTP)")
 	flag.Parse()
 
-	db, err := entropy.NewDB(dbUri, 10)
+	if !(*devMode) && addr == "" {
+		log.Fatal("ENTROPYCH_ADDR is required when not in dev mode")
+	}
+	if behindProxy && addr == ":443" {
+		log.Fatalf("ENTROPYCH_BEHIND_PROXY cannot be true when ENTROPYCH_ADDR=%q", addr)
+	}
+	if (*devMode) && addr == ":443" {
+		log.Fatalf("Cannot run in dev mode and serve TLS (ENTROPYCH_ADDR=%q)", addr)
+	}
+
+	return Config{
+		secretKey:   secretKey,
+		dbUri:       dbUri,
+		addr:        addr,
+		devMode:     *devMode,
+		behindProxy: behindProxy,
+		listenTLS:   addr == ":443",
+	}
+}
+
+func main() {
+	t := timer("startup")
+
+	conf := parseConfig()
+
+	db, err := entropy.NewDB(conf.dbUri, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -891,14 +928,14 @@ func main() {
 	mux.HandleFunc("GET /uploads/{upload_id}", app.ServeUpload)
 
 	trustedOrigins := []string{"entropych.maxhully.net"}
-	if *devMode {
+	if conf.devMode {
 		trustedOrigins = []string{"localhost:7777"}
 	}
 
 	var handler http.Handler
 	handler = entropy.WithUserContextMiddleware(app.db, mux)
 	csrfProtect := csrf.Protect(
-		secretKey,
+		conf.secretKey,
 		csrf.FieldName("csrf_token"),
 		csrf.TrustedOrigins(trustedOrigins),
 		csrf.Path("/"),
@@ -911,11 +948,14 @@ func main() {
 	handler = withSafeHeaders(handler)
 	handler = http.MaxBytesHandler(handler, maxRequestBytes)
 	handler = handlers.LoggingHandler(os.Stdout, handler)
+	if conf.behindProxy {
+		handler = handlers.ProxyHeaders(handler)
+	}
 	t()
 
-	if *devMode {
+	if conf.devMode {
 		log.Fatal(http.ListenAndServe(":7777", handler))
-	} else {
+	} else if conf.listenTLS {
 		cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "golang-autocert")
 		if err := os.MkdirAll(cacheDir, 0700); err != nil {
 			log.Printf("warning: autocert.NewListener not using a cache: %v", err)
@@ -935,5 +975,7 @@ func main() {
 			},
 		}
 		log.Fatal(server.ListenAndServeTLS("", ""))
+	} else {
+		log.Fatal(http.ListenAndServe(conf.addr, handler))
 	}
 }

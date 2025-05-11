@@ -23,6 +23,7 @@ remote_binary_version="/home/entropych/versions/server-$(date +"%Y%m%d_%H%M%S")-
 
 rsync --progress --checksum ops/entropych.service "$server_ssh:/etc/systemd/system/entropych.service"
 rsync --progress --checksum ops/entropych.env "$server_ssh:/etc/entropych/entropych.env"
+rsync --progress --checksum ops/entropych.maxhully.net.conf "$server_ssh:/etc/nginx/sites-available/entropych.maxhully.net.conf"
 
 rsync --progress build/server "$server_ssh:$remote_binary_version"
 rsync --progress build/bots "$server_ssh:/home/entropych/bin/bots"

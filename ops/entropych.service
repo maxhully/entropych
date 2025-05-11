@@ -9,7 +9,8 @@ User=entropych
 Group=entropych
 EnvironmentFile=/etc/entropych/entropych.env
 WorkingDirectory=/home/entropych
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# If we want to run on a privileged port (namely :80 and :443), we'll need this:
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
