@@ -12,6 +12,10 @@
 <form method="post" enctype="multipart/form-data" class="stack">
     {{csrf_field}}
     {{template "form_errors" .Form.Errors}}
+
+    <div>
+        <a href="{{ .User.URL }}">Your posts</a>
+    </div>
     <!--
     <div class="field">
         <label for="display_name" class="field__label">

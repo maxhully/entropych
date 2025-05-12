@@ -5,7 +5,20 @@
 
 <h1>{{.PostingUser.Name}}</h1>
 {{if .PostingUser.Bio}}
-<p class="bio">{{.PostingUser.Bio}}</p>
+<p class="bio">
+    {{.PostingUser.Bio}}
+    {{if .LoggedInUser }}
+    {{if eq .LoggedInUser.UserID .PostingUser.UserID}}
+    <a href="/profile">Edit</a>
+    {{end}}
+    {{end}}
+</p>
+{{else if .LoggedInUser}}
+{{if eq .LoggedInUser.UserID .PostingUser.UserID}}
+<p class="bio">
+    <a href="/profile">Write your bio</a>
+</p>
+{{end}}
 {{end}}
 <p>
     followers: {{.PostingUserFollowStats.FollowerCount}},

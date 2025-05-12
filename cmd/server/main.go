@@ -741,8 +741,9 @@ func (app *App) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if v := r.PostForm.Get("display_name"); v != "" {
 		page.Form.DisplayName = v
 	}
-	if v := r.PostForm.Get("bio"); v != "" {
-		page.Form.Bio = v
+	// Allow for an empty bio
+	if r.PostForm.Has("bio") {
+		page.Form.Bio = r.PostForm.Get("bio")
 	}
 	// TODO: validate avatar upload (must be .png)
 	if page.Form.Validate(); len(page.Form.Errors) > 0 {
