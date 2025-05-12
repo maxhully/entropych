@@ -60,7 +60,7 @@ func backfillEmptyAvatars(conn *sqlite.Conn) error {
 		return err
 	}
 	var err error
-	sqlitex.Save(conn)(&err)
+	defer sqlitex.Save(conn)(&err)
 	buf := new(bytes.Buffer)
 	for i := range users {
 		fmt.Printf("backfilling avatar for %s\n", users[i].Name)

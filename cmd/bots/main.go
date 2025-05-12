@@ -10,6 +10,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"flag"
@@ -25,7 +26,9 @@ import (
 	"time"
 
 	"crawshaw.io/sqlite"
+	"crawshaw.io/sqlite/sqlitex"
 	"github.com/maxhully/entropy"
+	"github.com/maxhully/entropy/avatargen"
 )
 
 // A line of dialogue, as represented in the nrennie/shakespeare repo
@@ -99,9 +102,10 @@ func streamDialogueLines(reader io.Reader, fromLine int) (<-chan dialogueLine, <
 var whitespace = regexp.MustCompile(`\s+`)
 
 // Also cleans the username so that it's lowercase with underscores for whitespace
-func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
+func getOrCreateUser(conn *sqlite.Conn, name string) (user *entropy.User, err error) {
+	defer sqlitex.Save(conn)(&err)
 	cleanName := strings.ToLower(whitespace.ReplaceAllString(name, "_"))
-	user, err := entropy.GetUserByName(conn, cleanName)
+	user, err = entropy.GetUserByName(conn, cleanName)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +113,17 @@ func getOrCreateUser(conn *sqlite.Conn, name string) (*entropy.User, error) {
 		// Use name as password for these bots
 		user, err = entropy.CreateUser(conn, cleanName, cleanName)
 		if err != nil {
+			return nil, err
+		}
+		buf := new(bytes.Buffer)
+		if err = avatargen.GenerateAvatarPNG(buf); err != nil {
+			return nil, err
+		}
+		uploadID, err := entropy.SaveUpload(conn, "image/png", buf.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		if err = entropy.UpdateUserProfile(conn, user.Name, "", "", uploadID); err != nil {
 			return nil, err
 		}
 	}

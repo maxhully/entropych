@@ -298,7 +298,7 @@ func (app *App) SignUpUser(w http.ResponseWriter, r *http.Request) {
 	conn := app.db.Get(r.Context())
 	defer app.db.Put(conn)
 	var err error
-	sqlitex.Save(conn)(&err)
+	defer sqlitex.Save(conn)(&err)
 
 	form := newSignUpForm()
 	if r.Method != http.MethodPost {
