@@ -12,7 +12,7 @@ if ! test -f "./build/server"; then
     exit 1
 fi
 
-ssh -q -T "$server_ssh" <<EOL
+ssh -T "$server_ssh" <<EOL
 id -u entropych >/dev/null 2>&1 || useradd -m entropych
 mkdir -p /etc/entropych
 mkdir -p /home/entropych/bin
@@ -31,7 +31,7 @@ rsync --progress build/backfill_avatars "$server_ssh:/home/entropych/bin/backfil
 # TODO: embed this in the binary, so that it's deployed as part of the single step below
 rsync -rv --progress --exclude=".DS_Store" ./static/ "$server_ssh:/home/entropych/static"
 # shellcheck disable=SC2087
-ssh -q -T "$server_ssh" <<EOL
+ssh -T "$server_ssh" <<EOL
     nohup sh -c "\
     rm "/home/entropych/server" && \
     ln -s "$remote_binary_version" "/home/entropych/server" && \
